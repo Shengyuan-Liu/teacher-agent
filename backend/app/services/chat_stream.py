@@ -10,6 +10,7 @@ from app.agents.qa import qa_graph
 from app.core.database import AsyncSessionLocal
 from app.models import ChatSession, Message
 from app.rag.retriever import RetrievedChunk
+from app.services import usage
 
 log = structlog.get_logger()
 
@@ -69,6 +70,7 @@ async def stream_answer(session_id: uuid.UUID, question: str) -> AsyncGenerator[
     citations: list[dict] = []
     answer_parts: list[str] = []
     grounded = False
+    turn = usage.start()
 
     # Stage events keep the client informed while nodes run, so the UI can
     # render a live call chain instead of a blank wait.
@@ -111,12 +113,16 @@ async def stream_answer(session_id: uuid.UUID, question: str) -> AsyncGenerator[
         # answer has shown which ones it leaned on.
         yield {"event": "citations", "data": json.dumps(citations)}
 
+    spent = turn.as_payload()
+    yield {"event": "usage", "data": json.dumps(spent)}
+
     async with AsyncSessionLocal() as db:
         message = Message(
             session_id=session_id,
             role="assistant",
             content=answer,
             citations=citations if grounded else None,
+            usage=spent,
         )
         db.add(message)
         await db.commit()

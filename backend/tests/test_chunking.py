@@ -81,3 +81,23 @@ def test_code_fence_is_not_split():
 def test_empty_input():
     assert chunk_document("") == []
     assert chunk_document("   \n  ") == []
+
+
+def test_an_overlong_heading_is_trimmed_not_fatal():
+    from app.rag.chunking import MAX_HEADING, MAX_HEADING_PATH
+
+    # OCR sometimes puts an annotation blob on a heading line.
+    blob = '*preface*[{"box_2d": [186, 418], "caption": "' + "x" * 4000 + '"}]'
+    parents = chunk_document(f"# {blob}\n\nBody text under it.\n")
+    assert parents
+    for parent in parents:
+        assert len(parent.heading_path or "") <= MAX_HEADING_PATH
+    assert len(parents[0].heading_path) <= MAX_HEADING + 1
+
+
+def test_deeply_nested_headings_stay_within_the_column():
+    from app.rag.chunking import MAX_HEADING_PATH
+
+    text = "".join(f"{'#' * min(i + 1, 6)} {'Section ' + 'n' * 100}\n\nbody\n\n" for i in range(6))
+    for parent in chunk_document(text):
+        assert len(parent.heading_path or "") <= MAX_HEADING_PATH

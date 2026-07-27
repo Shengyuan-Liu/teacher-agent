@@ -17,6 +17,7 @@ from app.rag.dense import search_dense
 from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.rerank import get_reranker
 from app.rag.sparse import search_sparse
+from app.services import usage
 from app.services.providers import embeddings
 
 
@@ -68,6 +69,7 @@ async def _candidates(
 ) -> list[RetrievedChunk]:
     rankings: list[list[uuid.UUID]] = []
     if config.use_dense:
+        usage.record_embedding("embed_query", query)
         vector = await embeddings().aembed_query(query)
         rankings.append(await search_dense(db, workspace_id, vector, config.candidates))
     if config.use_sparse:

@@ -19,6 +19,7 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]] | None
+    usage: dict[str, Any] | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

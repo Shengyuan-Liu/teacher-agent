@@ -63,24 +63,13 @@ export default function Workspace() {
   }
 
   return (
-    <main className="shell">
+    <main className="shell shell-column">
       <header className="topbar">
         <h1>{workspace?.name ?? '…'}</h1>
         <Link to="/" className="muted">
           ← All workspaces
         </Link>
       </header>
-
-      <form className="row" onSubmit={startChat}>
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={`New chat in ${workspace?.name ?? 'this workspace'}…`}
-        />
-        <button type="submit" disabled={!question.trim()}>
-          Ask
-        </button>
-      </form>
 
       <div className="tabs">
         <button
@@ -99,7 +88,20 @@ export default function Workspace() {
         </button>
       </div>
 
-      {tab === 'chats' ? <SessionList workspaceId={id} /> : <SourcePanel workspaceId={id} />}
+      <div className="shell-body">
+        {tab === 'chats' ? <SessionList workspaceId={id} /> : <SourcePanel workspaceId={id} />}
+      </div>
+
+      <form className="chat-input row" onSubmit={startChat}>
+        <input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder={`New chat in ${workspace?.name ?? 'this workspace'}…`}
+        />
+        <button type="submit" disabled={!question.trim()}>
+          Ask
+        </button>
+      </form>
     </main>
   )
 }

@@ -1,4 +1,4 @@
-.PHONY: help setup up down stop logs backend worker frontend dev test lint fmt migrate migration reset-db ps
+.PHONY: help setup up down stop logs backend worker frontend dev dev-bg test lint fmt migrate migration reset-db ps
 
 help:  ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -35,8 +35,11 @@ worker:  ## Run the ingestion worker
 frontend:  ## Run the dev server on :5300
 	cd frontend && pnpm dev
 
-dev: up  ## Start backend, worker and frontend together
-	@$(MAKE) -j3 backend worker frontend
+dev:  ## Start everything (ARGS=--nohup to detach, logs in logs/run_logs/)
+	@./scripts/dev.sh $(ARGS)
+
+dev-bg:  ## Start everything detached, logs in logs/run_logs/
+	@./scripts/dev.sh --nohup
 
 test:  ## Run backend and frontend tests, requires running containers
 	cd backend && uv run pytest -v

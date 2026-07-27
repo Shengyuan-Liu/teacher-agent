@@ -62,6 +62,8 @@ export interface Source {
   title: string
   status: 'pending' | 'parsing' | 'embedding' | 'ready' | 'failed'
   error: string | null
+  progress: number
+  progress_detail: string | null
   created_at: string
 }
 
@@ -76,11 +78,30 @@ export interface Citation {
   images: string[]
 }
 
+export interface UsageCall {
+  step: string
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+}
+
+export interface Usage {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost_usd: number | null
+  /** false when some call used a model with no configured price */
+  priced: boolean
+  calls: UsageCall[]
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations: Citation[] | null
+  usage: Usage | null
   created_at: string
 }
 
@@ -151,6 +172,7 @@ export interface StreamHandlers {
   onCitations: (citations: Citation[]) => void
   onToken: (delta: string) => void
   onDone: (grounded: boolean) => void
+  onUsage: (usage: Usage) => void
   onError: (message: string) => void
 }
 
@@ -181,6 +203,7 @@ export async function streamAnswer(
       if (event === 'stage') handlers.onStage(JSON.parse(data))
       else if (event === 'citations') handlers.onCitations(JSON.parse(data))
       else if (event === 'token') handlers.onToken(JSON.parse(data).delta)
+      else if (event === 'usage') handlers.onUsage(JSON.parse(data))
       else if (event === 'done') handlers.onDone(JSON.parse(data).grounded)
       else if (event === 'error') handlers.onError(JSON.parse(data).message)
     }

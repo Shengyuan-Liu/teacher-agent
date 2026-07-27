@@ -19,6 +19,7 @@ import structlog
 from langchain_core.messages import HumanMessage
 
 from app.core.config import settings
+from app.services import usage
 from app.services.providers import chat_model
 
 log = structlog.get_logger()
@@ -68,6 +69,9 @@ class JinaReranker:
             )
             response.raise_for_status()
             results = response.json()["results"]
+        usage.record_flat(
+            "rerank", settings.jina_rerank_model, _flat_price(settings.jina_rerank_model)
+        )
         return [Reranked(index=r["index"], score=r["relevance_score"]) for r in results]
 
 
@@ -88,6 +92,9 @@ class CohereReranker:
             )
             response.raise_for_status()
             results = response.json()["results"]
+        usage.record_flat(
+            "rerank", settings.cohere_rerank_model, _flat_price(settings.cohere_rerank_model)
+        )
         return [Reranked(index=r["index"], score=r["relevance_score"]) for r in results]
 
 
@@ -108,6 +115,9 @@ class VoyageReranker:
             )
             response.raise_for_status()
             results = response.json()["data"]
+        usage.record_flat(
+            "rerank", settings.voyage_rerank_model, _flat_price(settings.voyage_rerank_model)
+        )
         return [Reranked(index=r["index"], score=r["relevance_score"]) for r in results]
 
 
@@ -120,6 +130,7 @@ class LlmReranker:
         )
         prompt = LLM_PROMPT.format(query=query, passages=passages, top_n=top_n)
         reply = await chat_model().ainvoke([HumanMessage(prompt)])
+        usage.record_message("rerank", reply)
 
         order = _parse_order(reply.text, len(documents))
         if order is None:
@@ -128,6 +139,10 @@ class LlmReranker:
         return [
             Reranked(index=idx, score=1.0 / (rank + 1)) for rank, idx in enumerate(order[:top_n])
         ]
+
+
+def _flat_price(model: str) -> float | None:
+    return settings.rerank_prices.get(model)
 
 
 def _parse_order(text: str, count: int) -> list[int] | None:

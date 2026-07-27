@@ -12,6 +12,12 @@ theorem-like environments — are never split, even when oversized.
 import re
 from dataclasses import dataclass, field
 
+# A heading is a label. OCR occasionally emits a whole annotation blob on a
+# heading line, and an unbounded path then overflows the column and fails the
+# whole document.
+MAX_HEADING = 120
+MAX_HEADING_PATH = 480
+
 PARENT_TARGET = 4000
 CHILD_TARGET = 700
 CHILD_MIN = 120
@@ -91,15 +97,19 @@ def _sections(text: str) -> list[tuple[str | None, str]]:
         match = None if in_fence else HEADING.match(line)
         if match:
             flush()
-            level, title = len(match.group(1)), match.group(2).strip()
+            level, title = len(match.group(1)), _trim(match.group(2).strip(), MAX_HEADING)
             while stack and stack[-1][0] >= level:
                 stack.pop()
             stack.append((level, title))
-            path = " › ".join(title for _, title in stack)
+            path = _trim(" › ".join(title for _, title in stack), MAX_HEADING_PATH)
         else:
             current.append(line)
     flush()
     return sections
+
+
+def _trim(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _blocks(body: str) -> list[Block]:

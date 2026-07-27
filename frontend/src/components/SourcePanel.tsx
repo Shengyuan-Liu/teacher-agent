@@ -70,7 +70,7 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
                   {s.title}
                 </span>
                 <StatusBadge status={s.status} />
-                {s.status === 'failed' && (
+                {s.status !== 'ready' && (
                   <button className="link-button" onClick={() => retry.mutate(s.id)}>
                     Retry
                   </button>
@@ -79,6 +79,19 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
                   ×
                 </button>
               </div>
+              {ACTIVE.has(s.status) && (
+                <div className="ingest">
+                  <div className="ingest-track">
+                    <div
+                      className="ingest-bar"
+                      style={{ width: `${Math.max(2, s.progress * 100)}%` }}
+                    />
+                  </div>
+                  <span className="muted">
+                    {s.progress_detail ?? 'Queued'} · {Math.round(s.progress * 100)}%
+                  </span>
+                </div>
+              )}
               {s.error && <p className="error small">{s.error}</p>}
             </li>
           ))}

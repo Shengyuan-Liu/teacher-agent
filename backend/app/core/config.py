@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import computed_field
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,7 @@ class Settings(BaseSettings):
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     app_name: str = "TeacherAgent"
@@ -50,6 +51,29 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_vision_model: str = "gemini-2.5-flash-lite"
 
+    # USD per 1M tokens, (input, output). Verified 2026-07.
+    # MODEL_PRICES in the environment merges into this rather than replacing it,
+    # so adding one model does not silently drop the rest.
+    extra_model_prices: dict[str, tuple[float, float]] = Field(
+        default_factory=dict, alias="MODEL_PRICES"
+    )
+    default_model_prices: dict[str, tuple[float, float]] = {
+        "claude-sonnet-5": (3.0, 15.0),
+        "claude-opus-5": (15.0, 75.0),
+        "claude-haiku-4-5-20251001": (1.0, 5.0),
+        "gpt-5": (1.25, 10.0),
+        "text-embedding-3-small": (0.02, 0.0),
+        "text-embedding-3-large": (0.13, 0.0),
+    }
+
+    extra_rerank_prices: dict[str, float] = Field(default_factory=dict, alias="RERANK_PRICES")
+    # USD per rerank call: these bill per search, not per token.
+    default_rerank_prices: dict[str, float] = {
+        "rerank-v3.5": 0.002,
+        "jina-reranker-v3": 0.0,
+        "rerank-2.5-lite": 0.0,
+    }
+
     # Figures from retrieved sections are sent to the model when it can see.
     answer_with_images: bool = True
     max_answer_images: int = 4
@@ -72,12 +96,25 @@ class Settings(BaseSettings):
     search_provider: Literal["tavily", "brave", "searxng"] = "tavily"
     tavily_api_key: str | None = None
 
+    # A few hundred pages of OCR plus embedding can run for many minutes.
+    ingest_job_timeout: int = 3600
+
     max_upload_size_mb: int = 100
     max_repo_size_mb: int = 200
     max_crawl_pages: int = 100
     max_crawl_depth: int = 3
 
     storage_dir: str = "./storage"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def model_prices(self) -> dict[str, tuple[float, float]]:
+        return {**self.default_model_prices, **self.extra_model_prices}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rerank_prices(self) -> dict[str, float]:
+        return {**self.default_rerank_prices, **self.extra_rerank_prices}
 
     @computed_field  # type: ignore[prop-decorator]
     @property

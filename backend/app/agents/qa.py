@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.vision import image_blocks
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
+from app.services import usage
 from app.services.providers import chat_model
 
 TOP_K = 6
@@ -85,6 +86,7 @@ async def grade(state: QAState) -> dict:
         question=state["question"], excerpts=_format_excerpts(state["context"])
     )
     reply = await chat_model().ainvoke([HumanMessage(prompt)])
+    usage.record_message("grade", reply)
     return {"grounded": "YES" in reply.text.upper()}
 
 
@@ -99,18 +101,24 @@ async def generate(state: QAState) -> dict:
     messages.append(HumanMessage(content=question))
     # astream, not ainvoke: graph stream_mode="messages" only relays real
     # provider tokens, and the client renders them as they arrive.
-    parts = []
+    parts, final = [], None
     async for chunk in chat_model().astream(messages):
         parts.append(chunk.text)
+        final = chunk if final is None else final + chunk
+    if final is not None:
+        usage.record_message("generate", final)
     return {"answer": "".join(parts)}
 
 
 async def decline(state: QAState) -> dict:
-    parts = []
+    parts, final = [], None
     async for chunk in chat_model().astream(
         [HumanMessage(DECLINE_PROMPT.format(question=state["question"]))]
     ):
         parts.append(chunk.text)
+        final = chunk if final is None else final + chunk
+    if final is not None:
+        usage.record_message("decline", final)
     return {"answer": "".join(parts)}
 
 

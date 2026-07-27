@@ -12,6 +12,8 @@ class SourceResponse(BaseModel):
     title: str
     status: SourceStatus
     error: str | None
+    progress: float
+    progress_detail: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

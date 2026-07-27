@@ -6,7 +6,8 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import ActivityTrace, { type TraceStep } from '@/components/ActivityTrace'
 import CitationRef from '@/components/CitationRef'
-import { api, streamAnswer, type Citation, type StageEvent } from '@/lib/api'
+import UsageNote from '@/components/UsageNote'
+import { api, streamAnswer, type Citation, type StageEvent, type Usage } from '@/lib/api'
 import { normaliseMath } from '@/lib/markdown'
 import { rehypeCitations } from '@/lib/rehypeCitations'
 import 'katex/dist/katex.min.css'
@@ -15,6 +16,7 @@ interface Msg {
   role: 'user' | 'assistant'
   content: string
   citations: Citation[] | null
+  usage?: Usage | null
   trace?: TraceStep[]
   streaming?: boolean
 }
@@ -101,7 +103,12 @@ export default function Chat() {
       // A late response must not overwrite an answer already streaming in.
       if (cancelled || sentInitial.current) return
       setMessages(
-        history.map((m) => ({ role: m.role, content: m.content, citations: m.citations })),
+        history.map((m) => ({
+          role: m.role,
+          content: m.content,
+          citations: m.citations,
+          usage: m.usage,
+        })),
       )
       if (initialQuestion) {
         sentInitial.current = true
@@ -147,6 +154,7 @@ export default function Chat() {
           citations = c
         },
         onToken: (delta) => patchLast((last) => ({ ...last, content: last.content + delta })),
+        onUsage: (u) => patchLast((last) => ({ ...last, usage: u })),
         onDone: (grounded) => {
           finished = true
           patchLast((last) => ({
@@ -197,6 +205,7 @@ export default function Chat() {
               {m.citations && m.citations.length > 0 && (
                 <CitationChips citations={m.citations} workspaceId={workspaceId} />
               )}
+              {m.usage && !m.streaming && <UsageNote usage={m.usage} />}
             </div>
           ),
         )}

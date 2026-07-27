@@ -43,5 +43,7 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    #: tokens and cost for the whole turn that produced this reply
+    usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")

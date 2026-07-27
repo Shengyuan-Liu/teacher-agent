@@ -238,8 +238,12 @@ pnpm-debug.log*
 backend/storage/
 storage/
 
+# Detached dev-server logs
+logs/run_logs/
+
 # Container data volumes
 pgdata/
 
 CLAUDE.md
 .vscode
+logs/run_logs

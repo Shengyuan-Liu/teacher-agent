@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,9 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[SourceStatus] = mapped_column(default=SourceStatus.PENDING, nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
+    #: 0..1 through the ingestion pipeline
+    progress: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    progress_detail: Mapped[str | None] = mapped_column(String(200))
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="source", cascade="all, delete-orphan", passive_deletes=True
