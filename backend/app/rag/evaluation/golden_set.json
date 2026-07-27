@@ -1,0 +1,200 @@
+[
+  {
+    "question": "In duality theory, how do the optimal values of the primal and dual problems compare to each other?",
+    "gold_parent_id": "cce4e024-181c-4ec4-bf95-9f16633d645d",
+    "reference_answer": "The dual optimal value is always less than or equal to the primal optimal value, i.e., q* ≤ f*. This is the weak duality theorem, proven by showing the dual function minimized over X is at most the primal function minimized over the feasible set S, for any dual-feasible (λ, μ).",
+    "source_title": "Chapter 7: Duality › Weak and Strong Duality"
+  },
+  {
+    "question": "How can you tell if a point x* is a stationary point of a constrained optimization problem over a closed convex set C, using projections?",
+    "gold_parent_id": "b7025536-c827-4b52-aa7c-f2412447cc47",
+    "reference_answer": "x* is stationary if and only if x* equals the projection onto C of (x* - s∇f(x*)) for some step size s > 0, i.e., x* = P_C(x* - s∇f(x*)).",
+    "source_title": "Examples: › Optimization over a Convex Set and Stationarity › Examples of Orthogonal Projections:"
+  },
+  {
+    "question": "In the proof that a stationary point with positive definite Hessian is a strict local minimum, why does the equation from the Linear Approximation Theorem show f(x) > f(x*) for x near but not equal to x*?",
+    "gold_parent_id": "e6e70137-242a-44a0-8299-6e23e18363be",
+    "reference_answer": "Since ∇²f is positive definite throughout the ball B(x*,r), the point z_x lying between x* and x also has ∇²f(z_x) ≻ 0, so (x-x*)ᵀ∇²f(z_x)(x-x*) > 0 for x ≠ x*, making f(x) - f(x*) > 0.",
+    "source_title": "Chapter 1: Mathematical Foundations of Unconstrained Optimisation › Second Order Optimality Conditions"
+  },
+  {
+    "question": "For a quadratic function f(x) = xᵀAx + 2bᵀx + c with A symmetric and positive definite, what is the unique global minimizer of f?",
+    "gold_parent_id": "cd6b7429-6e3e-49f7-b6ee-2607371328f3",
+    "reference_answer": "x = -A⁻¹b. Since A ≻ 0, this is the unique solution to Ax = -b, and by the stationary point and global minimum conditions, it is the unique strict global minimum point of f.",
+    "source_title": "Chapter 1: Mathematical Foundations of Unconstrained Optimisation › Quadratic Functions"
+  },
+  {
+    "question": "In the scaled gradient method, why is the update direction -D∇f(x^k) guaranteed to be a descent direction?",
+    "gold_parent_id": "2ec62349-dc6f-4ef8-9cbe-acfc2748d634",
+    "reference_answer": "Because D = SS^T with S nonsingular, D is positive definite. This makes the directional derivative f'(x^k; -D∇f(x^k)) = -∇f(x^k)^T D ∇f(x^k) negative whenever ∇f(x^k) ≠ 0, ensuring descent.",
+    "source_title": "**Algorithm 2:** The Gradient Method › Scaled Gradient Method"
+  },
+  {
+    "question": "How is a closed set defined in terms of sequences, and what is the equivalent condition involving its complement?",
+    "gold_parent_id": "78d2818c-78e6-4062-a0d9-fbdabe105a1e",
+    "reference_answer": "A set U is closed if every convergent sequence of points in U has its limit also in U. Equivalently, U is closed if and only if its complement U^c is open.",
+    "source_title": "Basic Topological Concepts"
+  },
+  {
+    "question": "Why does gradient descent take so many iterations (thousands) to solve the Rosenbrock problem?",
+    "gold_parent_id": "9099a204-c4fe-4f07-9b3c-fdb9aba2827d",
+    "reference_answer": "Because the Hessian at the optimum (1,1) is severely ill-conditioned, with a condition number of about 2508. Since gradient descent's convergence rate depends on this condition number, such a large value causes extremely slow convergence, requiring around 6890 iterations to reach the optimum.",
+    "source_title": "**Algorithm 2:** The Gradient Method › The Condition Number"
+  },
+  {
+    "question": "For a linear program with a nonempty, compact feasible region, what can we say about the existence and location of an optimal solution?",
+    "gold_parent_id": "014e6969-c18f-4dc2-929a-9e4060d43138",
+    "reference_answer": "An optimal solution is guaranteed to exist, and at least one optimal solution occurs at an extreme point of the feasible region, which is equivalent to saying it corresponds to a basic feasible solution.",
+    "source_title": "Examples:"
+  },
+  {
+    "question": "How do you find the gradient of the general quadratic function f(w) = (1/2)w^T A w + b^T w + γ, and what does it simplify to when A is symmetric?",
+    "gold_parent_id": "0043365f-7e0a-439e-b9b9-0ad5f56bbec8",
+    "reference_answer": "Using ∇(w^T A w) = (A^T + A)w, we get ∇f(w) = (1/2)(A^T + A)w + b. If A is symmetric, this simplifies to ∇f(w) = Aw + b, since (A^T + A) becomes 2A.",
+    "source_title": "Gradient of Quadratic Function"
+  },
+  {
+    "question": "For a convex objective function that is L-smooth, what convergence rate does the gradient method achieve when using a step size of 1/L, and how does the error depend on the number of iterations K?",
+    "gold_parent_id": "e73651a8-8411-436f-8b57-b8bc45e164fd",
+    "reference_answer": "Using step-length t_k = 1/L, the gradient method satisfies f(x^K) - f* ≤ (L / (2K)) ||x^0 - x*||^2, showing the optimality gap decreases at a rate of O(1/K).",
+    "source_title": "**Algorithm 2:** The Gradient Method › Improved convergence result of the gradient method for convex functions"
+  },
+  {
+    "question": "How did Gauss manage to figure out Ceres' orbit after astronomers had lost track of it?",
+    "gold_parent_id": "a8438f07-f990-4562-98aa-7fe5836a272e",
+    "reference_answer": "Using only three data points from Piazzi's 41 days of observations, Gauss developed a mathematical method to calculate the planet's orbit, allowing him to correctly predict where Ceres would reappear, which brought him significant fame.",
+    "source_title": "MATH60005/70005: Optimisation Term 1, Academic Year 25-26 › A Bit of History"
+  },
+  {
+    "question": "In the KKT proof for linearly constrained problems, why can we ignore the inactive constraints when showing that a_i^T y ≤ 0 for active i implies ∇f(x*)^T y ≥ 0?",
+    "gold_parent_id": "4ee5ef09-6378-447c-9dc3-a392563c583d",
+    "reference_answer": "Because for inactive constraints b_i - a_i^T x* > 0, so scaling y by a small enough α>0 keeps a_i^T(αy) within b_i - a_i^T x* while still satisfying a_i^T(αy) ≤ 0 for active constraints, letting stationarity apply.",
+    "source_title": "Chapter 6: KKT Conditions › KKT Conditions for Linearly Constrained Problems"
+  },
+  {
+    "question": "Why is it valid to drop the constraint ||x||^2 ≥ R when turning the circle-fitting least squares problem into an unconstrained linear least squares problem?",
+    "gold_parent_id": "6c04ec4f-e38c-40fb-9a57-96f076188901",
+    "reference_answer": "Because if an optimal solution had ||x̂||² < R̂, each squared residual term would strictly exceed ||x̂−a_i||² ≥ 0, meaning replacing R̂ with ||x̂||² would strictly decrease the objective, contradicting optimality. So optimal solutions automatically satisfy ||x̂||² ≥ R̂, making the constraint redundant.",
+    "source_title": "Denoising › A Case Study: Circle Fitting"
+  },
+  {
+    "question": "For an optimization problem over the nonnegative orthant R_+^n, what does the stationarity condition look like in terms of the partial derivatives of f at x*?",
+    "gold_parent_id": "84eb0844-3f54-47ba-a0ae-9cdd7c2feebc",
+    "reference_answer": "For each i, ∂f/∂x_i(x*) = 0 if x_i* > 0, and ∂f/∂x_i(x*) ≥ 0 if x_i* = 0. Equivalently, ∇f(x*) ≥ 0 and x_i*·∂f/∂x_i(x*) = 0 for all i.",
+    "source_title": "Examples: › Optimization over a Convex Set and Stationarity › Examples of Stationarity Conditions"
+  },
+  {
+    "question": "Using the KKT conditions for equality-constrained problems, how do I find the minimizer of (1/2)(x1²+x2²+x3²) subject to x1+x2+x3=3?",
+    "gold_parent_id": "dfe50357-d074-4891-b377-3062d33b30a5",
+    "reference_answer": "Setting ∇f + μc = 0 gives xi = -μ for each i; the constraint x1+x2+x3=3 forces μ=-1, so x* = (1,1,1). Since f is convex, this KKT point is the global optimum, with optimal value f(x*) = 3/2.",
+    "source_title": "Chapter 6: KKT Conditions › KKT Conditions for Linearly Constrained Problems"
+  },
+  {
+    "question": "How can I tell whether a function f is convex just by looking at its epigraph?",
+    "gold_parent_id": "85ab32ec-0fdf-4a94-ac8f-3bb4adea2027",
+    "reference_answer": "f is convex if and only if its epigraph—the set of points (x,t) lying on or above the graph, i.e., where f(x) ≤ t—is a convex set in R^(n+1).",
+    "source_title": "Chapter 3: Convexity Fundamentals › Convexity, Strict Convexity and Concavity › Examples of Convex Functions"
+  },
+  {
+    "question": "For f(w) = wᵀAw, what is the Hessian in terms of A, and how does it simplify when A is symmetric?",
+    "gold_parent_id": "75a9570d-bab6-4bea-a936-ee0eb8ea6686",
+    "reference_answer": "The Hessian is ∇²f(w) = A + Aᵀ, since each entry equals a_{k'k} + a_{kk'}. If A is symmetric (A = Aᵀ), this reduces to ∇²f(w) = 2A.",
+    "source_title": "Gradient of Quadratic Function › Hessian of a Quadratic Form"
+  },
+  {
+    "question": "What are the defining properties that a map on R^n must satisfy to be called an inner product?",
+    "gold_parent_id": "ca7d5cb1-a860-41da-8989-50073cd4101f",
+    "reference_answer": "It must be symmetric (⟨x,y⟩=⟨y,x⟩), additive in one argument (⟨x,y+z⟩=⟨x,y⟩+⟨x,z⟩), homogeneous (⟨λx,y⟩=λ⟨x,y⟩), and positive definite (⟨x,x⟩≥0, with equality only when x=0).",
+    "source_title": "Chapter 0: Mathematical Preliminaries › Inner Products and Norms"
+  },
+  {
+    "question": "In the gradient descent lecture notes, which topic is covered right after the condition number section?",
+    "gold_parent_id": "5fc0d7f2-4d59-4c13-9046-c5b04f2cc271",
+    "reference_answer": "The Scaled Gradient Method, which appears on page 14, immediately following the discussion of the condition number starting on page 11.",
+    "source_title": "Chapter 4: Descent Methods"
+  },
+  {
+    "question": "For a twice continuously differentiable function, how does having a Lipschitz continuous gradient with constant L relate to the size of its Hessian?",
+    "gold_parent_id": "251dc2d5-6eaf-4357-88c5-ee42bca29182",
+    "reference_answer": "They are equivalent: f has an L-Lipschitz gradient if and only if the operator norm of the Hessian, ‖∇²f(x)‖, is bounded by L for every x in ℝⁿ.",
+    "source_title": "**Algorithm 2:** The Gradient Method › Lipschitz Continuity of the Gradient"
+  },
+  {
+    "question": "How does the Kaczmarz method relate to gradient descent on the least squares problem for Ax=b?",
+    "gold_parent_id": "21647c2e-8260-425c-a160-8c0b2a15d7d2",
+    "reference_answer": "Kaczmarz can be seen as a stochastic gradient descent method: instead of using the full gradient A^T(Ax-b) over all rows like standard gradient descent, it updates x using only the gradient contribution from a single randomly or cyclically chosen row a_i at each iteration.",
+    "source_title": "**Algorithm 6:** Damped Newton's Method › The Kaczmarz Algorithm"
+  },
+  {
+    "question": "How is the unit-simplex Δ_n defined?",
+    "gold_parent_id": "fee2367f-fb83-4e97-9d3f-6d2683d7d8f4",
+    "reference_answer": "Δ_n is the set of all vectors x in R^n such that x ≥ 0 (each component nonnegative) and e^T x = 1, meaning the sum of the components equals 1.",
+    "source_title": "Chapter 0: Mathematical Preliminaries › Vector Spaces › Important subsets of $\\mathbb{R}^n$."
+  },
+  {
+    "question": "In regularized least squares with a quadratic penalty, what condition on S and D guarantees that S^T S + λD^T D is invertible so that x_RLS is well-defined?",
+    "gold_parent_id": "261036fb-41c3-459f-9963-5bda3dafea1f",
+    "reference_answer": "The condition is that the null spaces of S and D intersect only at the zero vector, i.e., Null(S) ∩ Null(D) = {0}.",
+    "source_title": "Regularized Least Squares"
+  },
+  {
+    "question": "In a scaled gradient descent method, how should I go about choosing the scaling matrix at each step, and what's a simpler alternative to using the full inverse Hessian?",
+    "gold_parent_id": "a769836f-0083-4bf7-ba29-f0dc045f6220",
+    "reference_answer": "Choose D^k to make (D^k)^{1/2}∇²f(x^k)(D^k)^{1/2} as well-conditioned as possible, e.g. Newton's method sets D^k = (∇²f(x^k))^{-1}. A simpler alternative is diagonal scaling, setting (D^k)_ii equal to the inverse of the corresponding diagonal second partial derivative, useful when variables have very different magnitudes.",
+    "source_title": "**Algorithm 3**: Scaled Gradient Method"
+  },
+  {
+    "question": "How can I show that the Rayleigh quotient of a symmetric matrix always lies between its smallest and largest eigenvalues?",
+    "gold_parent_id": "2abaa5c1-0d2f-47e7-9ccc-68aa97734410",
+    "reference_answer": "By the Spectral Factorization Theorem, A = UDU^T with orthonormal eigenvectors, so x^TAx becomes a weighted sum of eigenvalues via y=U^Tx. Since each eigenvalue term is bounded between λ_min and λ_max, dividing by ||x||^2=||y||^2 gives λ_min ≤ R_A(x) ≤ λ_max.",
+    "source_title": "Eigenvalues and Eigenvectors"
+  },
+  {
+    "question": "In gradient descent with exact line search, why are consecutive step directions always perpendicular to each other?",
+    "gold_parent_id": "02f72cb9-f044-4eb1-9244-9ef50a06b358",
+    "reference_answer": "Because each step size minimizes f along the current gradient direction, the derivative of that line-search function at the optimal step must vanish, which forces the gradient at the new point to be orthogonal to the gradient at the previous point, making consecutive steps perpendicular.",
+    "source_title": "**Algorithm 2:** The Gradient Method › The Zig-Zag Effect"
+  },
+  {
+    "question": "For the QP min x^T Q x + 2f^T x subject to Ax ≤ b, what does the Lagrangian dual problem look like after eliminating x?",
+    "gold_parent_id": "a217a18f-da78-4024-9faa-9e7da3f6cae9",
+    "reference_answer": "The dual is max over λ ≥ 0 of q(λ) = −λ^T A Q^{-1} A^T λ − 2(A Q^{-1} f + b)^T λ − f^T Q^{-1} f, obtained by substituting the minimizer x* = −Q^{-1}(f + A^T λ) into the Lagrangian; it's a concave maximization with simple nonnegativity constraints.",
+    "source_title": "Chapter 7: Duality › Strictly Convex Quadratic Programming"
+  },
+  {
+    "question": "In the ADMM reformulation of the linear quadratic programming problem, how is the extra variable z introduced and which constraints are handled by x versus by z?",
+    "gold_parent_id": "35ebe996-6b8f-4e78-a614-500587f23ac0",
+    "reference_answer": "A new variable z is set equal to x, with the bound constraints ℓ≤z≤u assigned to z, while the equality constraint Ax=b remains enforced on x. This splits the problem so x handles the linear equality constraint and z handles the bound constraints.",
+    "source_title": "Chapter 7: Duality › Alternating Direction Method of Multipliers"
+  },
+  {
+    "question": "For f(x1,x2) = x1 + x2 on the closed unit ball S = {x1²+x2² ≤ 1}, what are the global maximum and minimum points and values?",
+    "gold_parent_id": "3283111a-5d34-47cd-a936-b5d83d745139",
+    "reference_answer": "The global maximum point is (1/√2, 1/√2) with value √2, and the global minimum point is (-1/√2, -1/√2) with value -√2, since these are where the linear function achieves its extreme values on the boundary of the ball.",
+    "source_title": "Chapter 1: Mathematical Foundations of Unconstrained Optimisation › Global Minimum and Maximum"
+  },
+  {
+    "question": "If f(w) is a linear function like a^T w or a^T w + β, what is its gradient with respect to w?",
+    "gold_parent_id": "ae125ed8-774a-4baf-b7f3-9c44bfcba80d",
+    "reference_answer": "The gradient is simply the vector a, i.e., ∇f(w) = a. This holds whether f(w) = a^T w or f(w) = a^T w + β, since adding a constant β doesn't affect the gradient because it doesn't depend on w.",
+    "source_title": "Basic Topological Concepts › Gradient and Hessian of Quadratic Functions › Gradient of Linear Function"
+  },
+  {
+    "question": "Who won the 2022 FIFA World Cup?",
+    "gold_parent_id": null,
+    "reference_answer": null,
+    "source_title": null
+  },
+  {
+    "question": "What is the capital of Australia?",
+    "gold_parent_id": null,
+    "reference_answer": null,
+    "source_title": null
+  },
+  {
+    "question": "How do I make sourdough bread?",
+    "gold_parent_id": null,
+    "reference_answer": null,
+    "source_title": null
+  }
+]

@@ -1,0 +1,114 @@
+"""Hybrid retrieval: dense + BM25, fused with RRF, then reranked.
+
+Each stage can be switched off so the evaluation harness can attribute a change
+in the metrics to the stage that caused it.
+"""
+
+import uuid
+from dataclasses import dataclass, field, replace
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.models import ChunkParent, Source
+from app.rag.dense import search_dense
+from app.rag.fusion import reciprocal_rank_fusion
+from app.rag.rerank import get_reranker
+from app.rag.sparse import search_sparse
+from app.services.providers import embeddings
+
+
+@dataclass
+class RetrievedChunk:
+    chunk_id: str
+    source_id: str
+    source_title: str
+    heading: str | None
+    content: str
+    score: float
+    images: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class RetrievalConfig:
+    use_dense: bool = True
+    use_sparse: bool = True
+    use_rerank: bool = True
+    top_k: int = settings.retrieval_top_k
+    candidates: int = settings.retrieval_candidates
+
+
+async def retrieve(
+    workspace_id: uuid.UUID,
+    query: str,
+    config: RetrievalConfig | None = None,
+) -> list[RetrievedChunk]:
+    """Owns its database session so reranking never holds a pooled connection.
+
+    The reranker is a network call; keeping a transaction open across it would
+    exhaust the pool under concurrency.
+    """
+    config = config or RetrievalConfig()
+    async with AsyncSessionLocal() as db:
+        candidates = await _candidates(db, workspace_id, query, config)
+
+    if not candidates:
+        return []
+    if not config.use_rerank:
+        return candidates[: config.top_k]
+
+    ranked = await get_reranker().rank(query, [c.content for c in candidates], config.top_k)
+    return [replace(candidates[r.index], score=r.score) for r in ranked]
+
+
+async def _candidates(
+    db: AsyncSession, workspace_id: uuid.UUID, query: str, config: RetrievalConfig
+) -> list[RetrievedChunk]:
+    rankings: list[list[uuid.UUID]] = []
+    if config.use_dense:
+        vector = await embeddings().aembed_query(query)
+        rankings.append(await search_dense(db, workspace_id, vector, config.candidates))
+    if config.use_sparse:
+        hits = await search_sparse(db, workspace_id, query, config.candidates)
+        rankings.append([h.parent_id for h in hits])
+
+    if not rankings:
+        return []
+
+    fused = reciprocal_rank_fusion(rankings)[: config.candidates]
+    if not fused:
+        return []
+
+    parents = await _load(db, [pid for pid, _ in fused])
+    return _as_chunks(
+        [parents[pid] for pid, _ in fused if pid in parents],
+        [score for pid, score in fused if pid in parents],
+    )
+
+
+async def _load(
+    db: AsyncSession, parent_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[ChunkParent, str]]:
+    rows = await db.execute(
+        select(ChunkParent, Source.title)
+        .join(Source, ChunkParent.source_id == Source.id)
+        .where(ChunkParent.id.in_(parent_ids))
+    )
+    return {parent.id: (parent, title) for parent, title in rows}
+
+
+def _as_chunks(ordered: list[tuple[ChunkParent, str]], scores: list[float]) -> list[RetrievedChunk]:
+    return [
+        RetrievedChunk(
+            chunk_id=str(parent.id),
+            source_id=str(parent.source_id),
+            source_title=title,
+            heading=parent.heading_path,
+            content=parent.content,
+            score=score,
+            images=parent.images or [],
+        )
+        for (parent, title), score in zip(ordered, scores, strict=False)
+    ]
