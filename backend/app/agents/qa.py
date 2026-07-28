@@ -11,6 +11,7 @@ from typing import TypedDict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+from app.agents import language
 from app.agents.vision import image_blocks
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
 from app.services import usage
@@ -20,9 +21,9 @@ TOP_K = 6
 
 GENERATE_SYSTEM = """\
 You are a study assistant. Answer the user's question using ONLY the numbered excerpts \
-below. Cite the excerpts you rely on inline as [1], [2] and so on. Answer in the same \
-language as the question. If the excerpts cover only part of the question, answer that \
-part and say explicitly what the material does not cover. Never bring in outside knowledge.
+below. Cite the excerpts you rely on inline as [1], [2] and so on. If the excerpts \
+cover only part of the question, answer that part and say explicitly what the material \
+does not cover. Never bring in outside knowledge.
 
 Format your answer as strict GitHub-flavored Markdown:
 - Use headings, lists and tables where they help.
@@ -35,7 +36,10 @@ Figures referenced by the excerpts are attached as images; describe what they \
 show when it helps, and never claim to see a figure that was not attached.
 
 Excerpts:
-{excerpts}"""
+{excerpts}
+
+{language}
+This holds even when the excerpts are written in another language."""
 
 GRADE_PROMPT = """\
 Question: {question}
@@ -50,8 +54,9 @@ DECLINE_PROMPT = """\
 The user asked: {question}
 
 The provided study material does not contain information relevant to this question. \
-Tell the user so, briefly and politely, in the same language as their question. \
-Do not attempt to answer the question itself."""
+Tell the user so, briefly and politely. Do not attempt to answer the question itself.
+
+{language}"""
 
 
 class QAState(TypedDict):
@@ -91,7 +96,14 @@ async def grade(state: QAState) -> dict:
 
 
 async def generate(state: QAState) -> dict:
-    messages = [SystemMessage(GENERATE_SYSTEM.format(excerpts=_format_excerpts(state["context"])))]
+    messages = [
+        SystemMessage(
+            GENERATE_SYSTEM.format(
+                excerpts=_format_excerpts(state["context"]),
+                language=language.instruction(state["question"]),
+            )
+        )
+    ]
     for role, content in state["history"]:
         messages.append({"role": role, "content": content})
     figures = image_blocks(state["context"])
@@ -113,7 +125,14 @@ async def generate(state: QAState) -> dict:
 async def decline(state: QAState) -> dict:
     parts, final = [], None
     async for chunk in chat_model().astream(
-        [HumanMessage(DECLINE_PROMPT.format(question=state["question"]))]
+        [
+            HumanMessage(
+                DECLINE_PROMPT.format(
+                    question=state["question"],
+                    language=language.instruction(state["question"]),
+                )
+            )
+        ]
     ):
         parts.append(chunk.text)
         final = chunk if final is None else final + chunk

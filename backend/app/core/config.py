@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     max_repo_size_mb: int = 200
     max_crawl_pages: int = 100
     max_crawl_depth: int = 3
+    # SSRF guard. Proxies with fake-IP DNS resolve every host into reserved
+    # space, which makes this check fire on any site; such setups turn it off.
+    crawl_block_private_addresses: bool = True
 
     storage_dir: str = "./storage"
 

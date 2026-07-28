@@ -21,7 +21,7 @@ export default function Login() {
         await api.register(email, password)
       }
       const tokens = await api.login(email, password)
-      setAuth(tokens.access_token, email)
+      setAuth(tokens.access_token, tokens.refresh_token, email)
       navigate('/')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Network error, please retry')

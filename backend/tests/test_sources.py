@@ -8,7 +8,7 @@ async def test_upload_rejects_unsupported_type(auth_client: AsyncClient):
 
     res = await auth_client.post(
         f"/workspaces/{ws['id']}/sources/upload",
-        files={"file": ("notes.docx", b"whatever", "application/octet-stream")},
+        files={"file": ("notes.exe", b"whatever", "application/octet-stream")},
     )
     assert res.status_code == 415
 

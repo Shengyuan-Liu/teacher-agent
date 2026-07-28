@@ -1,26 +1,52 @@
+import asyncio
 import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, or_, select
 
+from app.agents.outline import build_outline
 from app.core.database import AsyncSessionLocal
 from app.models import Chunk, ChunkParent, Source, SourceStatus, SourceType
 from app.rag.chunking import chunk_document
+from app.rag.crawl import crawl, pages_to_markdown
 from app.rag.extract import extract_text
 from app.rag.pdf_convert import get_converter
+from app.rag.repo import repo_to_markdown
 from app.services.providers import embeddings
 from app.services.storage import save_image
 
 log = structlog.get_logger()
 
 EMBED_BATCH = 64
+PENDING_GRACE_SECONDS = 60
 
 # The OCR call is one request for the whole file, so nothing finer is available
 # until chunks exist; embedding is batched and reports real progress.
 CONVERTED = 0.35
 CHUNKED = 0.45
 EMBEDDED = 0.98
+
+
+async def _refresh_outline(db, workspace_id) -> None:
+    """Rebuild the topic map once every source has settled.
+
+    Outline failure must not fail an ingestion that already succeeded; the
+    planner regenerates it on demand anyway.
+    """
+    settled = await db.scalar(
+        select(func.count(Source.id)).where(
+            Source.workspace_id == workspace_id, Source.status != SourceStatus.READY
+        )
+    )
+    if settled:
+        return
+    try:
+        await build_outline(workspace_id)
+    except Exception as exc:
+        log.warning("outline.refresh_failed", workspace_id=str(workspace_id), error=str(exc))
 
 
 async def _report(db, source: Source, progress: float, detail: str) -> None:
@@ -32,14 +58,22 @@ async def _report(db, source: Source, progress: float, detail: str) -> None:
 async def requeue_interrupted(ctx: dict[str, Any]) -> None:
     """Re-enqueue work a previous worker died in the middle of.
 
-    A source left in PARSING or EMBEDDING has no running job behind it, and the
-    UI only offers Retry on FAILED, so without this it stays stuck forever.
+    PARSING and EMBEDDING can only mean a worker vanished mid-job. PENDING is
+    ambiguous — it may have been enqueued a moment ago — so only pick it up once
+    it has sat there long enough that no live job can be behind it.
     """
+    cutoff = datetime.now(UTC) - timedelta(seconds=PENDING_GRACE_SECONDS)
     async with AsyncSessionLocal() as db:
         stranded = list(
             await db.scalars(
                 select(Source).where(
-                    Source.status.in_([SourceStatus.PARSING, SourceStatus.EMBEDDING])
+                    or_(
+                        Source.status.in_([SourceStatus.PARSING, SourceStatus.EMBEDDING]),
+                        and_(
+                            Source.status == SourceStatus.PENDING,
+                            Source.updated_at < cutoff,
+                        ),
+                    )
                 )
             )
         )
@@ -84,6 +118,18 @@ async def _run(db, source: Source) -> None:
         text = converted.markdown
         for image_id, data in converted.images.items():
             images[image_id] = str(save_image(source.workspace_id, source.id, image_id, data))
+    elif source.type is SourceType.URL:
+
+        async def crawling(fraction: float, detail: str) -> None:
+            await _report(db, source, 0.02 + (CONVERTED - 0.02) * fraction, detail)
+
+        pages = await crawl(source.origin, report=crawling)
+        text = pages_to_markdown(pages)
+        await asyncio.to_thread(Path(source.file_path).write_text, text)
+    elif source.type is SourceType.GITHUB:
+        await _report(db, source, 0.05, "Cloning repository")
+        text = await asyncio.to_thread(repo_to_markdown, source.origin)
+        await asyncio.to_thread(Path(source.file_path).write_text, text)
     else:
         text = extract_text(source.file_path, source.type)
 
@@ -142,6 +188,7 @@ async def _run(db, source: Source) -> None:
 
     source.status = SourceStatus.READY
     await _report(db, source, 1.0, None)
+    await _refresh_outline(db, source.workspace_id)
     log.info(
         "ingest.done",
         source_id=str(source.id),

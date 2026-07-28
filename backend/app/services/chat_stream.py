@@ -70,11 +70,22 @@ async def stream_answer(session_id: uuid.UUID, question: str) -> AsyncGenerator[
     citations: list[dict] = []
     answer_parts: list[str] = []
     grounded = False
+    trace: list[dict] = []
     turn = usage.start()
+
+    def stage(name: str, label: str) -> dict:
+        return {
+            "event": "stage",
+            "data": json.dumps({"agent": "qa", "stage": name, "label": label}),
+        }
+
+    def stage_result(name: str, label: str, result: str | None) -> dict:
+        trace.append({"agent": "qa", "stage": name, "label": label, "result": result})
+        return {"event": "stage_result", "data": json.dumps({"stage": name, "result": result})}
 
     # Stage events keep the client informed while nodes run, so the UI can
     # render a live call chain instead of a blank wait.
-    yield {"event": "stage", "data": json.dumps({"stage": "retrieve"})}
+    yield stage("retrieve", "Searching material")
 
     try:
         async for mode, payload in qa_graph.astream(state, stream_mode=["updates", "messages"]):
@@ -85,19 +96,31 @@ async def stream_answer(session_id: uuid.UUID, question: str) -> AsyncGenerator[
                     yield {"event": "token", "data": json.dumps({"delta": chunk.text})}
             elif mode == "updates":
                 if "retrieve" in payload:
-                    citations = _citations_payload(payload["retrieve"]["context"])
-                    yield {
-                        "event": "stage",
-                        "data": json.dumps({"stage": "grade", "excerpts": len(citations)}),
-                    }
+                    context = payload["retrieve"]["context"]
+                    citations = _citations_payload(context)
+                    sources = ", ".join(sorted({c.source_title for c in context})[:3])
+                    yield stage_result(
+                        "retrieve",
+                        "Searching material",
+                        f"{len(context)} sections · {sources}" if context else "nothing found",
+                    )
+                    yield stage("grade", "Checking coverage")
                 if "grade" in payload:
                     grounded = payload["grade"]["grounded"]
-                    yield {
-                        "event": "stage",
-                        "data": json.dumps({"stage": "generate" if grounded else "decline"}),
-                    }
+                    yield stage_result(
+                        "grade",
+                        "Checking coverage",
+                        "material covers this" if grounded else "not covered by the material",
+                    )
                     if grounded:
+                        yield stage("generate", "Writing answer from material")
                         yield {"event": "citations", "data": json.dumps(citations)}
+                    else:
+                        yield stage("decline", "Writing a decline")
+                if "generate" in payload:
+                    yield stage_result("generate", "Writing answer from material", None)
+                if "decline" in payload:
+                    yield stage_result("decline", "Writing a decline", None)
     except Exception as exc:
         log.error("chat.stream_failed", session_id=str(session_id), error=str(exc))
         yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
@@ -123,6 +146,7 @@ async def stream_answer(session_id: uuid.UUID, question: str) -> AsyncGenerator[
             content=answer,
             citations=citations if grounded else None,
             usage=spent,
+            trace=trace,
         )
         db.add(message)
         await db.commit()

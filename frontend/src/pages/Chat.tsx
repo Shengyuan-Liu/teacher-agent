@@ -7,7 +7,7 @@ import remarkMath from 'remark-math'
 import ActivityTrace, { type TraceStep } from '@/components/ActivityTrace'
 import CitationRef from '@/components/CitationRef'
 import UsageNote from '@/components/UsageNote'
-import { api, streamAnswer, type Citation, type StageEvent, type Usage } from '@/lib/api'
+import { api, streamAnswer, type Citation, type Usage } from '@/lib/api'
 import { normaliseMath } from '@/lib/markdown'
 import { rehypeCitations } from '@/lib/rehypeCitations'
 import 'katex/dist/katex.min.css'
@@ -19,19 +19,6 @@ interface Msg {
   usage?: Usage | null
   trace?: TraceStep[]
   streaming?: boolean
-}
-
-function stageLabel(e: StageEvent): string {
-  switch (e.stage) {
-    case 'retrieve':
-      return 'Searching material'
-    case 'grade':
-      return `Checking coverage of ${e.excerpts} excerpts`
-    case 'generate':
-      return 'Writing answer from material'
-    case 'decline':
-      return "Material doesn't cover this"
-  }
 }
 
 function CitationChips({
@@ -108,6 +95,13 @@ export default function Chat() {
           content: m.content,
           citations: m.citations,
           usage: m.usage,
+          trace: (m.trace ?? []).map((t, i) => ({
+            key: `${t.stage}-${i}`,
+            agent: t.agent,
+            label: t.label,
+            result: t.result,
+            done: true,
+          })),
         })),
       )
       if (initialQuestion) {
@@ -146,17 +140,25 @@ export default function Chat() {
           patchLast((last) => ({
             ...last,
             trace: [
-              ...(last.trace ?? []).map((s) => ({ ...s, done: true })),
-              { label: stageLabel(e), done: false },
+              ...(last.trace ?? []),
+              { key: e.stage, agent: e.agent, label: e.label, result: null, done: false },
             ],
+          })),
+        onStageResult: (e) =>
+          patchLast((last) => ({
+            ...last,
+            trace: (last.trace ?? []).map((step) =>
+              step.key === e.stage ? { ...step, result: e.result, done: true } : step,
+            ),
           })),
         onCitations: (c) => {
           citations = c
         },
         onToken: (delta) => patchLast((last) => ({ ...last, content: last.content + delta })),
         onUsage: (u) => patchLast((last) => ({ ...last, usage: u })),
-        onDone: (grounded) => {
+        onDone: (payload) => {
           finished = true
+          const grounded = Boolean(payload.grounded)
           patchLast((last) => ({
             ...last,
             streaming: false,

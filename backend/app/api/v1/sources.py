@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -10,13 +11,21 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models import Source, SourceStatus, SourceType, Workspace
 from app.models.workspace import WorkspaceStatus
-from app.schemas.source import SourceResponse
+from app.rag.repo import parse_repo_url
+from app.schemas.source import GithubSourceCreate, SourceResponse, UrlSourceCreate
 from app.services.queue import get_queue
 from app.services.storage import source_path
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/sources", tags=["sources"])
 
-EXTENSIONS = {".pdf": SourceType.PDF, ".md": SourceType.MARKDOWN, ".markdown": SourceType.MARKDOWN}
+EXTENSIONS = {
+    ".pdf": SourceType.PDF,
+    ".md": SourceType.MARKDOWN,
+    ".markdown": SourceType.MARKDOWN,
+    ".docx": SourceType.DOCX,
+    ".pptx": SourceType.PPTX,
+    ".xlsx": SourceType.XLSX,
+}
 
 
 @router.post("/upload", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
@@ -59,6 +68,57 @@ async def upload_source(
     queue = await get_queue()
     await queue.enqueue_job("ingest_source", str(source.id))
     return source
+
+
+async def _create_remote_source(
+    db: AsyncSession,
+    workspace: Workspace,
+    source_type: SourceType,
+    origin: str,
+    title: str,
+) -> Source:
+    source = Source(
+        workspace_id=workspace.id,
+        type=source_type,
+        title=title[:300],
+        origin=origin,
+        file_path="",
+    )
+    db.add(source)
+    await db.flush()
+    source.file_path = str(source_path(workspace.id, source.id, ".md"))
+    workspace.status = WorkspaceStatus.INGESTING
+    await db.commit()
+    queue = await get_queue()
+    await queue.enqueue_job("ingest_source", str(source.id))
+    return source
+
+
+@router.post("/url", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
+async def add_url_source(
+    body: UrlSourceCreate,
+    workspace: Workspace = Depends(get_owned_workspace),
+    db: AsyncSession = Depends(get_db),
+) -> Source:
+    seed = str(body.url)
+    parts = urlsplit(seed)
+    title = parts.netloc + (parts.path.rstrip("/") or "")
+    return await _create_remote_source(db, workspace, SourceType.URL, seed, title)
+
+
+@router.post("/github", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
+async def add_github_source(
+    body: GithubSourceCreate,
+    workspace: Workspace = Depends(get_owned_workspace),
+    db: AsyncSession = Depends(get_db),
+) -> Source:
+    try:
+        owner, name = parse_repo_url(str(body.repo_url))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    return await _create_remote_source(
+        db, workspace, SourceType.GITHUB, str(body.repo_url), f"{owner}/{name}"
+    )
 
 
 @router.get("", response_model=list[SourceResponse])

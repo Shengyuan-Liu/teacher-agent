@@ -5,7 +5,9 @@
 ```
 app/rag/
   pdf_convert.py   PDF → Markdown（mistral / gemini / text 可插拔）
-  extract.py       非 PDF 格式的文本抽取
+  crawl.py         网址抓取（同目录 BFS、robots、SSRF 防护、页→章节）
+  repo.py          GitHub 仓库（浅克隆 → 过滤 → 代码分窗成 fenced 段）
+  extract.py       其他格式（md/docx/pptx/xlsx 走 markitdown）
   chunking.py      语义切分 + 父子分块
   dense.py         稠密向量检索（pgvector 余弦距离）
   sparse.py        BM25 稀疏检索（按 workspace 建索引并缓存）
@@ -15,8 +17,8 @@ app/rag/
   evaluation/      评估集、指标、运行器
 ```
 
-LangGraph 的 agent 图不在这里，统一放 `backend/app/agents/`（每个 agent 一个模块），
-后续的 Planner / Quiz / Lecture / Search 也放那里。分界很简单：**agent 负责决策流程，
+LangGraph 的 agent 图不在这里，统一放 `backend/app/agents/`（每个 agent 一个模块）：
+`qa.py`、`planner.py`、`quiz.py`、`outline.py`（单次调用，非图）；Lecture / Search 后续加入。分界很简单：**agent 负责决策流程，
 rag 负责把上下文找出来**。
 
 ## 检索链路

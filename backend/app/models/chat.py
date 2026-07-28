@@ -45,5 +45,7 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     #: tokens and cost for the whole turn that produced this reply
     usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: agent steps that produced this reply, for the collapsible call chain
+    trace: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")

@@ -616,3 +616,156 @@ button.ghost:hover {
   font-size: 0.75rem;
   white-space: nowrap;
 }
+
+/* plans */
+
+.plan-form input[type='date'],
+.plan-form input[type='number'],
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+}
+
+.inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.plan {
+  margin-top: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+}
+
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  margin-bottom: 0.6rem;
+}
+
+.stage {
+  border-top: 1px solid var(--border);
+  padding: 0.7rem 0;
+}
+
+.stage.done .stage-title span {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.stage-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stage-body {
+  margin-left: 1.6rem;
+  font-size: 0.92rem;
+}
+
+/* quiz */
+
+.question {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+}
+
+.question-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.option {
+  text-align: left;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.5rem 0.8rem;
+}
+
+.option .md p {
+  margin: 0;
+}
+
+.option.picked {
+  border-color: var(--text);
+}
+
+.option.correct {
+  border-color: #22c55e;
+  background: #ecfdf3;
+}
+
+.option.wrong {
+  border-color: #ef4444;
+  background: #fef3f2;
+}
+
+.verdict {
+  margin-top: 0.7rem;
+  border-radius: 10px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.92rem;
+}
+
+.verdict.ok {
+  background: #ecfdf3;
+}
+
+.verdict.bad {
+  background: #fef3f2;
+}
+
+/* richer trace steps */
+
+.trace-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.15rem 0;
+}
+
+.trace-step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.trace-agent {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+}
+
+.trace-result {
+  margin-left: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}

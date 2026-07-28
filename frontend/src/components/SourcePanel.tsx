@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { api, type Source } from '@/lib/api'
 
 const ACTIVE = new Set(['pending', 'parsing', 'embedding'])
@@ -11,6 +11,8 @@ function StatusBadge({ status }: { status: Source['status'] }) {
 
 export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
   const fileInput = useRef<HTMLInputElement>(null)
+  const [adding, setAdding] = useState<'url' | 'github' | null>(null)
+  const [location, setLocation] = useState('')
   const queryClient = useQueryClient()
 
   const sources = useQuery({
@@ -26,6 +28,17 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
     mutationFn: (file: File) => api.uploadSource(workspaceId, file),
     onSuccess: refresh,
   })
+  const addRemote = useMutation({
+    mutationFn: (value: string) =>
+      adding === 'github'
+        ? api.addGithubSource(workspaceId, value)
+        : api.addUrlSource(workspaceId, value),
+    onSuccess: () => {
+      setAdding(null)
+      setLocation('')
+      refresh()
+    },
+  })
   const retry = useMutation({
     mutationFn: (id: string) => api.retrySource(workspaceId, id),
     onSuccess: refresh,
@@ -40,7 +53,7 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
       <input
         ref={fileInput}
         type="file"
-        accept=".pdf,.md,.markdown"
+        accept=".pdf,.md,.markdown,.docx,.pptx,.xlsx"
         hidden
         onChange={(e) => {
           const file = e.target.files?.[0]
@@ -48,14 +61,52 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
           e.target.value = ''
         }}
       />
-      <button
-        className="ghost"
-        onClick={() => fileInput.current?.click()}
-        disabled={upload.isPending}
-      >
-        {upload.isPending ? 'Uploading…' : '+ Upload PDF / Markdown'}
-      </button>
-      {upload.isError && <p className="error">{String(upload.error)}</p>}
+      <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+        <button
+          className="ghost"
+          onClick={() => fileInput.current?.click()}
+          disabled={upload.isPending}
+        >
+          {upload.isPending ? 'Uploading…' : '+ Upload file'}
+        </button>
+        <button className="ghost" onClick={() => setAdding(adding === 'url' ? null : 'url')}>
+          + Website
+        </button>
+        <button className="ghost" onClick={() => setAdding(adding === 'github' ? null : 'github')}>
+          + GitHub repo
+        </button>
+      </div>
+      {adding && (
+        <form
+          className="row"
+          style={{ marginTop: '0.6rem' }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (location.trim()) addRemote.mutate(location.trim())
+          }}
+        >
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder={
+              adding === 'github'
+                ? 'https://github.com/owner/repo'
+                : 'https://docs.example.com/guide/'
+            }
+            autoFocus
+          />
+          <button type="submit" disabled={addRemote.isPending || !location.trim()}>
+            {addRemote.isPending ? 'Adding…' : 'Add'}
+          </button>
+        </form>
+      )}
+      {[upload, addRemote, retry, remove]
+        .filter((m) => m.isError)
+        .map((m, i) => (
+          <p key={i} className="error">
+            {String(m.error)}
+          </p>
+        ))}
 
       {sources.data?.length === 0 ? (
         <div className="empty" style={{ marginTop: '1rem' }}>

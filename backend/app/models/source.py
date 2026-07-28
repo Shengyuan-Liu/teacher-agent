@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 class SourceType(enum.StrEnum):
     PDF = "pdf"
     MARKDOWN = "md"
+    DOCX = "docx"
+    PPTX = "pptx"
+    XLSX = "xlsx"
+    URL = "url"
+    GITHUB = "github"
 
 
 class SourceStatus(enum.StrEnum):
@@ -37,7 +42,10 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     type: Mapped[SourceType] = mapped_column(nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
+    #: uploaded snapshot on disk; for url/github sources this is the crawled markdown
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    #: where the content came from (seed URL or repository URL); None for uploads
+    origin: Mapped[str | None] = mapped_column(String(1000))
     status: Mapped[SourceStatus] = mapped_column(default=SourceStatus.PENDING, nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
     #: 0..1 through the ingestion pipeline
