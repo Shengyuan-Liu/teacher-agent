@@ -33,3 +33,17 @@ async def test_web_search_is_disabled_by_default(client: AsyncClient, monkeypatc
     monkeypatch.setattr(settings, "web_search_enabled", False)
     res = await client.get(f"{BASE}/capabilities")
     assert res.json()["web_search"] is False
+
+
+async def test_capabilities_reports_llm_tiers(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "llm_fast_model", None)
+    monkeypatch.setattr(settings, "llm_smart_model", None)
+
+    res = await client.get(f"{BASE}/capabilities")
+
+    assert res.status_code == 200
+    assert res.json()["llm_models"] == {
+        "fast": "gpt-5.6-luna",
+        "smart": "gpt-5.6-terra",
+    }

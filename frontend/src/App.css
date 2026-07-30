@@ -755,6 +755,7 @@ select {
 .trace-step-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.45rem;
 }
 
@@ -766,10 +767,32 @@ select {
   padding: 0 0.5rem;
 }
 
+.trace-model {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.08rem 0.35rem;
+}
+
 .trace-result {
   margin-left: 1.5rem;
+  margin-top: 0.1rem;
+  margin-bottom: 0.35rem;
+  padding: 0.65rem 0.75rem;
   font-size: 0.8rem;
   color: var(--text-muted);
+  font-family: var(--mono);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: 28rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
 }
 
 /* Web search: kept visually distinct from the user's own material. */
@@ -822,4 +845,16 @@ select {
 }
 .small {
   font-size: 0.8rem;
+}
+.cite-button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cite-button:disabled {
+  cursor: default;
 }

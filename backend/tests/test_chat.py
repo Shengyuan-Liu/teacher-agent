@@ -1,4 +1,63 @@
+import uuid
+
 from httpx import AsyncClient
+from langchain_core.messages import AIMessage, AIMessageChunk
+
+from app.agents import qa
+from app.rag.retriever import RetrievedChunk
+
+
+class _FakeQAChat:
+    def __init__(self, grade: str, answer: str):
+        self.grade = grade
+        self.answer = answer
+
+    async def ainvoke(self, _messages):
+        return AIMessage(content=self.grade)
+
+    async def astream(self, _messages):
+        yield AIMessageChunk(content=self.answer)
+
+
+async def test_qa_acceptance_answers_from_material_with_a_citation(monkeypatch):
+    async def retrieve(*_args, **_kwargs):
+        return [
+            RetrievedChunk(
+                chunk_id="chunk-1",
+                source_id="source-1",
+                source_title="notes.md",
+                heading="Definition",
+                content="A monoid is a set with an associative operation and an identity element.",
+                score=1.0,
+            )
+        ]
+
+    monkeypatch.setattr(qa, "retrieve", retrieve)
+    monkeypatch.setattr(
+        qa,
+        "chat_model",
+        lambda *_: _FakeQAChat("YES", "A monoid has associativity and an identity [1]."),
+    )
+
+    answer, grounded = await qa.answer_question("What is a monoid?", uuid.uuid4())
+    assert grounded is True
+    assert answer.endswith("[1].")
+
+
+async def test_qa_acceptance_declines_when_material_has_no_coverage(monkeypatch):
+    async def retrieve(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(qa, "retrieve", retrieve)
+    monkeypatch.setattr(
+        qa,
+        "chat_model",
+        lambda *_: _FakeQAChat("NO", "The provided material does not cover that question."),
+    )
+
+    answer, grounded = await qa.answer_question("What is the weather today?", uuid.uuid4())
+    assert grounded is False
+    assert "does not cover" in answer
 
 
 async def test_session_lifecycle_and_delete(auth_client: AsyncClient):

@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ChunkParent
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 GENERATE_PROMPT = """Here is an excerpt from a set of lecture notes.
 
@@ -72,7 +72,7 @@ async def build(
 
     cases: list[EvalCase] = []
     for parent in parents[:size]:
-        reply = await chat_model().ainvoke(
+        reply = await chat_model(IntelligenceTier.SMART).ainvoke(
             [HumanMessage(GENERATE_PROMPT.format(content=parent.content[:3000]))]
         )
         parsed = _parse(reply.text)

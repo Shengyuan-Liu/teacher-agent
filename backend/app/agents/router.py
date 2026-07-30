@@ -15,7 +15,7 @@ from typing import Literal
 from langchain_core.messages import HumanMessage
 
 from app.services import usage
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 Intent = Literal["qa", "web", "quiz", "plan"]
 
@@ -48,7 +48,7 @@ def _context(history: list[tuple[str, str]] | None) -> str:
 
 async def classify_intent(question: str, history: list[tuple[str, str]] | None = None) -> Intent:
     prompt = CLASSIFY_PROMPT.format(context=_context(history), question=question)
-    reply = await chat_model().ainvoke([HumanMessage(prompt)])
+    reply = await chat_model(IntelligenceTier.FAST).ainvoke([HumanMessage(prompt)])
     usage.record_message("router", reply)
     verdict = reply.text.strip().lower()
     if "web" in verdict:

@@ -20,7 +20,7 @@ from langchain_core.messages import HumanMessage
 
 from app.core.config import settings
 from app.services import usage
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 log = structlog.get_logger()
 
@@ -129,7 +129,7 @@ class LlmReranker:
             f"[{i + 1}] {doc[:SNIPPET_CHARS]}" for i, doc in enumerate(documents)
         )
         prompt = LLM_PROMPT.format(query=query, passages=passages, top_n=top_n)
-        reply = await chat_model().ainvoke([HumanMessage(prompt)])
+        reply = await chat_model(IntelligenceTier.FAST).ainvoke([HumanMessage(prompt)])
         usage.record_message("rerank", reply)
 
         order = _parse_order(reply.text, len(documents))

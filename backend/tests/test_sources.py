@@ -30,6 +30,10 @@ async def test_upload_md_creates_pending_source(auth_client: AsyncClient):
     listed = (await auth_client.get(f"/workspaces/{ws['id']}/sources")).json()
     assert [s["id"] for s in listed] == [source["id"]]
 
+    original = await auth_client.get(f"/workspaces/{ws['id']}/sources/{source['id']}/content")
+    assert original.status_code == 200
+    assert original.content == b"# Hello\n\nSome content."
+
     await auth_client.delete(f"/workspaces/{ws['id']}")
 
 

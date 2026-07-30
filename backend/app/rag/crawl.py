@@ -10,9 +10,11 @@ import asyncio
 import ipaddress
 import re
 import socket
+import tempfile
 import urllib.robotparser
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
@@ -21,6 +23,7 @@ import trafilatura
 from bs4 import BeautifulSoup
 
 from app.core.config import settings
+from app.rag.pdf_convert import get_converter
 
 log = structlog.get_logger()
 
@@ -43,7 +46,6 @@ SKIP_EXTENSIONS = (
     ".webm",
     ".woff",
     ".woff2",
-    ".pdf",
     ".epub",
 )
 
@@ -123,6 +125,36 @@ async def _robots(client: httpx.AsyncClient, seed: str) -> urllib.robotparser.Ro
     return parser
 
 
+MAX_REDIRECTS = 5
+
+
+async def _get_validated(
+    client: httpx.AsyncClient, url: str, prefix: str | None = None
+) -> tuple[httpx.Response, str]:
+    """Follow redirects manually, validating scope and DNS before every hop."""
+    current = normalise(url)
+    for _ in range(MAX_REDIRECTS):
+        if prefix is not None and not in_scope(current, prefix):
+            raise ValueError(f"Redirect left crawl scope: {current}")
+        await asyncio.to_thread(_assert_public_host, current)
+        response = await client.get(current)
+        if response.is_redirect and "location" in response.headers:
+            current = normalise(urljoin(current, response.headers["location"]))
+            continue
+        return response, normalise(str(response.url))
+    raise ValueError(f"Too many redirects fetching {current}")
+
+
+async def _pdf_markdown(response: httpx.Response, url: str) -> str:
+    if len(response.content) > settings.max_upload_size_mb * 1024 * 1024:
+        raise ValueError(f"Linked PDF exceeds the {settings.max_upload_size_mb} MB limit")
+    with tempfile.TemporaryDirectory(prefix="teacher-agent-pdf-") as directory:
+        path = Path(directory) / "linked.pdf"
+        await asyncio.to_thread(path.write_bytes, response.content)
+        converted = await get_converter().convert(str(path))
+    return converted.markdown.strip()
+
+
 async def crawl(
     seed: str,
     max_pages: int | None = None,
@@ -138,7 +170,6 @@ async def crawl(
     queue: list[tuple[str, int]] = [(seed, 0)]
 
     async with httpx.AsyncClient(
-        follow_redirects=True,
         timeout=PAGE_TIMEOUT,
         headers={"User-Agent": "TeacherAgent/0.1 (learning assistant; contact: local)"},
     ) as client:
@@ -149,15 +180,32 @@ async def crawl(
             if not robots.can_fetch("*", url):
                 continue
             try:
-                response = await client.get(url)
-            except httpx.HTTPError as exc:
+                response, final_url = await _get_validated(client, url, prefix)
+            except (httpx.HTTPError, ValueError) as exc:
                 log.info("crawl.page_failed", url=url, error=str(exc))
                 continue
 
-            final_url = normalise(str(response.url))
             if response.status_code != 200 or not in_scope(final_url, prefix):
                 continue
-            if "text/html" not in response.headers.get("content-type", ""):
+            content_type = response.headers.get("content-type", "").lower()
+            if "application/pdf" in content_type or final_url.lower().endswith(".pdf"):
+                try:
+                    markdown = await _pdf_markdown(response, final_url)
+                except (httpx.HTTPError, ValueError) as exc:
+                    log.info("crawl.pdf_failed", url=final_url, error=str(exc))
+                    continue
+                if markdown:
+                    pages.append(
+                        Page(
+                            url=final_url,
+                            title=Path(urlsplit(final_url).path).name,
+                            markdown=markdown,
+                        )
+                    )
+                    if report:
+                        await report(len(pages) / limit, f"Crawled {len(pages)}/{limit} pages")
+                continue
+            if "text/html" not in content_type:
                 continue
 
             html = response.text
@@ -187,9 +235,6 @@ async def crawl(
     return pages
 
 
-MAX_REDIRECTS = 5
-
-
 async def fetch_page(url: str) -> Page:
     """Fetch one arbitrary page's main content as Markdown.
 
@@ -204,15 +249,7 @@ async def fetch_page(url: str) -> Page:
         timeout=PAGE_TIMEOUT,
         headers={"User-Agent": "TeacherAgent/0.1 (learning assistant; contact: local)"},
     ) as client:
-        for _ in range(MAX_REDIRECTS):
-            await asyncio.to_thread(_assert_public_host, url)
-            response = await client.get(url)
-            if response.is_redirect and "location" in response.headers:
-                url = normalise(urljoin(url, response.headers["location"]))
-                continue
-            break
-        else:
-            raise ValueError(f"Too many redirects fetching {url}")
+        response, url = await _get_validated(client, url)
 
     response.raise_for_status()
     if "text/html" not in response.headers.get("content-type", ""):

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import SourceImage from '@/components/SourceImage'
-import type { Citation } from '@/lib/api'
+import { fetchSourceFile, type Citation } from '@/lib/api'
 
 const GRACE_MS = 200
 
@@ -35,14 +35,36 @@ export default function CitationRef({
     closeTimer.current = window.setTimeout(() => setOpen(false), GRACE_MS)
   }
 
+  const openSource = async () => {
+    const external = citation.source_url ?? citation.source_origin
+    if (external) {
+      window.open(external, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (!workspaceId || !citation.source_id) return
+    const blob = await fetchSourceFile(workspaceId, citation.source_id)
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener,noreferrer')
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   return (
     <span className="cite-wrap" onMouseEnter={show} onMouseLeave={hide}>
-      <span className="cite">[{n}]</span>
+      <button
+        type="button"
+        className="cite cite-button"
+        onClick={openSource}
+        disabled={!((citation.source_url ?? citation.source_origin) || (workspaceId && citation.source_id))}
+        title="Open source"
+      >
+        [{n}]
+      </button>
       {open && (
         <span className="cite-pop" onMouseEnter={show} onMouseLeave={hide}>
           <span className="cite-pop-head">
             {citation.source_title}
             {citation.heading ? ` · ${citation.heading}` : ''}
+            {citation.source_position != null ? ` · section ${citation.source_position + 1}` : ''}
           </span>
           <span className="cite-pop-body">
             {citation.excerpt}

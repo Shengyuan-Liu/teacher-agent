@@ -4,6 +4,7 @@ Each stage can be switched off so the evaluation harness can attribute a change
 in the metrics to the stage that caused it.
 """
 
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 
@@ -30,6 +31,10 @@ class RetrievedChunk:
     content: str
     score: float
     images: list[dict[str, str]] = field(default_factory=list)
+    source_type: str | None = None
+    source_origin: str | None = None
+    source_position: int | None = None
+    source_url: str | None = None
 
 
 @dataclass
@@ -92,25 +97,36 @@ async def _candidates(
 
 async def _load(
     db: AsyncSession, parent_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, tuple[ChunkParent, str]]:
+) -> dict[uuid.UUID, tuple[ChunkParent, Source]]:
     rows = await db.execute(
-        select(ChunkParent, Source.title)
+        select(ChunkParent, Source)
         .join(Source, ChunkParent.source_id == Source.id)
         .where(ChunkParent.id.in_(parent_ids))
     )
-    return {parent.id: (parent, title) for parent, title in rows}
+    return {parent.id: (parent, source) for parent, source in rows}
 
 
-def _as_chunks(ordered: list[tuple[ChunkParent, str]], scores: list[float]) -> list[RetrievedChunk]:
+def _as_chunks(
+    ordered: list[tuple[ChunkParent, Source]], scores: list[float]
+) -> list[RetrievedChunk]:
     return [
         RetrievedChunk(
             chunk_id=str(parent.id),
             source_id=str(parent.source_id),
-            source_title=title,
+            source_title=source.title,
             heading=parent.heading_path,
             content=parent.content,
             score=score,
             images=parent.images or [],
+            source_type=source.type.value,
+            source_origin=source.origin,
+            source_position=parent.position,
+            source_url=_page_url(parent.content) or source.origin,
         )
-        for (parent, title), score in zip(ordered, scores, strict=False)
+        for (parent, source), score in zip(ordered, scores, strict=False)
     ]
+
+
+def _page_url(content: str) -> str | None:
+    match = re.search(r"(?:^|\n)Source:\s*(https?://\S+)", content)
+    return match.group(1).rstrip(").,;") if match else None

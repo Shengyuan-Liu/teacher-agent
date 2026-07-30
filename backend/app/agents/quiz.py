@@ -19,7 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChunkParent, Source
 from app.rag.retriever import RetrievalConfig, retrieve
 from app.services import usage
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 SAMPLE_SECTIONS = 8
 MIN_SECTION_CHARS = 400
@@ -48,6 +48,15 @@ Rules:
 - {language}
 - Output only the JSON object."""
 
+GROUNDING_PROMPT = """Check whether each proposed practice question and its stated answer are
+fully supported by the associated source excerpt. Reject questions that require outside
+knowledge, have an ambiguous or partly wrong answer, or whose explanation contradicts the source.
+
+{items}
+
+Return only JSON: {{"supported": [1, 3]}}
+The array contains the numbers of supported questions. Be strict."""
+
 
 class QuizState(TypedDict):
     workspace_id: str
@@ -72,13 +81,18 @@ async def gather(state: QuizState) -> dict:
                 "title": h.source_title,
                 "heading": h.heading,
                 "content": h.content,
+                "source_id": h.source_id,
+                "source_type": h.source_type,
+                "source_origin": h.source_origin,
+                "source_url": h.source_url,
+                "source_position": h.source_position,
             }
             for h in hits
         ]
     else:
         async with AsyncSessionLocal() as db:
             rows = await db.execute(
-                select(ChunkParent, Source.title)
+                select(ChunkParent, Source)
                 .join(Source, ChunkParent.source_id == Source.id)
                 .where(
                     ChunkParent.workspace_id == workspace_id,
@@ -88,8 +102,18 @@ async def gather(state: QuizState) -> dict:
             parents = list(rows)
         random.shuffle(parents)
         sections = [
-            {"chunk_id": str(p.id), "title": title, "heading": p.heading_path, "content": p.content}
-            for p, title in parents[:SAMPLE_SECTIONS]
+            {
+                "chunk_id": str(p.id),
+                "title": source.title,
+                "heading": p.heading_path,
+                "content": p.content,
+                "source_id": str(source.id),
+                "source_type": source.type.value,
+                "source_origin": source.origin,
+                "source_url": source.origin,
+                "source_position": p.position,
+            }
+            for p, source in parents[:SAMPLE_SECTIONS]
         ]
     if not sections:
         raise ValueError("No material found to write questions from")
@@ -109,7 +133,7 @@ async def generate(state: QuizState) -> dict:
         language=state.get("language")
         or "Write the questions in the same language as the excerpts.",
     )
-    reply = await chat_model().ainvoke([HumanMessage(prompt)])
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt)])
     usage.record_message("quiz_generate", reply)
     match = re.search(r"\{.*\}", reply.text, re.S)
     if not match:
@@ -118,23 +142,107 @@ async def generate(state: QuizState) -> dict:
 
 
 async def validate(state: QuizState) -> dict:
-    questions = []
-    for raw in state["raw"]:
-        cleaned = validate_question(raw, len(state["sections"]))
+    candidates = _clean_candidates(state["raw"], state["sections"])
+    if not candidates:
+        raise ValueError("No generated question survived validation")
+
+    supported = await judge_grounding(candidates, state["sections"])
+    questions = [question for index, question in enumerate(candidates, 1) if index in supported]
+
+    # One bounded repair pass keeps a rejected item from silently reducing the
+    # requested quiz size. The repaired set goes through the same strict judge.
+    if len(questions) < state["count"]:
+        missing = state["count"] - len(questions)
+        avoid = "; ".join(question["stem"] for question in questions)
+        retry_state = {
+            **state,
+            "count": missing,
+            "request": (
+                f"{state.get('request') or ''}\nGenerate {missing} replacement questions. "
+                f"Do not repeat these stems: {avoid or '(none)'}"
+            ),
+        }
+        replacement_raw = (await generate(retry_state))["raw"]
+        replacements = _clean_candidates(replacement_raw, state["sections"])
+        replacements = deduplicate_questions([*questions, *replacements])[len(questions) :]
+        if replacements:
+            replacement_supported = await judge_grounding(replacements, state["sections"])
+            questions.extend(
+                question
+                for index, question in enumerate(replacements, 1)
+                if index in replacement_supported
+            )
+
+    if not questions:
+        raise ValueError("No generated question was fully supported by the material")
+    return {"questions": questions[: state["count"]]}
+
+
+def _clean_candidates(raw_questions: list[dict], sections: list[dict]) -> list[dict]:
+    candidates = []
+    for raw in raw_questions:
+        cleaned = validate_question(raw, len(sections))
         if cleaned is None:
             continue
         index = cleaned.pop("source_index")
-        section = state["sections"][index - 1]
+        section = sections[index - 1]
         cleaned["source"] = {
             "index": index,
             "chunk_id": section["chunk_id"],
             "title": section["title"],
             "heading": section["heading"],
+            "source_id": section.get("source_id"),
+            "source_type": section.get("source_type"),
+            "source_origin": section.get("source_origin"),
+            "source_url": section.get("source_url"),
+            "source_position": section.get("source_position"),
         }
-        questions.append(cleaned)
-    if not questions:
-        raise ValueError("No generated question survived validation")
-    return {"questions": questions}
+        candidates.append(cleaned)
+    return deduplicate_questions(candidates)
+
+
+async def judge_grounding(questions: list[dict], sections: list[dict]) -> set[int]:
+    items = []
+    for index, question in enumerate(questions, 1):
+        source_index = int(question["source"]["index"])
+        excerpt = sections[source_index - 1]["content"][:3000]
+        items.append(
+            f"Question {index}: {question['stem']}\n"
+            f"Stated answer: {json.dumps(question['answer'], ensure_ascii=False)}\n"
+            f"Explanation: {question['explanation']}\n"
+            f"Source excerpt:\n{excerpt}"
+        )
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke(
+        [HumanMessage(GROUNDING_PROMPT.format(items="\n\n---\n\n".join(items)))]
+    )
+    usage.record_message("quiz_validate", reply)
+    return parse_supported(reply.text, len(questions))
+
+
+def parse_supported(text: str, question_count: int) -> set[int]:
+    match = re.search(r"\{.*\}", text, re.S)
+    if not match:
+        return set()
+    try:
+        values = json.loads(match.group(0)).get("supported", [])
+    except (json.JSONDecodeError, AttributeError):
+        return set()
+    return {
+        value
+        for value in values
+        if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= question_count
+    }
+
+
+def deduplicate_questions(questions: list[dict]) -> list[dict]:
+    unique = []
+    seen: set[str] = set()
+    for question in questions:
+        key = re.sub(r"[^\w]+", "", question["stem"].casefold())
+        if key and key not in seen:
+            unique.append(question)
+            seen.add(key)
+    return unique
 
 
 def validate_question(raw: dict, section_count: int) -> dict | None:

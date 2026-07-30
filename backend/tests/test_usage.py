@@ -67,3 +67,7 @@ def test_environment_prices_merge_into_the_defaults(monkeypatch):
     merged = Settings().model_prices
     assert merged["my-model"] == (1.0, 2.0)
     assert "claude-sonnet-5" in merged, "adding one model must not drop the defaults"
+    assert merged["gpt-5.6-luna"] == (1.0, 6.0)
+    assert merged["gpt-5.6-terra"] == (2.5, 15.0)
+    assert merged["gpt-5.6-sol"] == (5.0, 30.0)
+    assert merged["text-embedding-3-small"] == (0.02, 0.0)

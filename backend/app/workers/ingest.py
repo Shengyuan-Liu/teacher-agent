@@ -17,6 +17,7 @@ from app.rag.pdf_convert import get_converter
 from app.rag.repo import repo_to_markdown
 from app.services.providers import embeddings
 from app.services.storage import save_image
+from app.services.workspace_status import ACTIVE_SOURCE_STATUSES, refresh_workspace_status
 
 log = structlog.get_logger()
 
@@ -36,12 +37,13 @@ async def _refresh_outline(db, workspace_id) -> None:
     Outline failure must not fail an ingestion that already succeeded; the
     planner regenerates it on demand anyway.
     """
-    settled = await db.scalar(
+    active = await db.scalar(
         select(func.count(Source.id)).where(
-            Source.workspace_id == workspace_id, Source.status != SourceStatus.READY
+            Source.workspace_id == workspace_id,
+            Source.status.in_(ACTIVE_SOURCE_STATUSES),
         )
     )
-    if settled:
+    if active:
         return
     try:
         await build_outline(workspace_id)
@@ -102,6 +104,8 @@ async def ingest_source(ctx: dict[str, Any], source_id: str) -> None:
             source.status = SourceStatus.FAILED
             source.error = str(exc)[:2000]
             source.progress_detail = None
+            await db.flush()
+            await refresh_workspace_status(db, source.workspace_id)
             await db.commit()
             log.error("ingest.failed", source_id=source_id, error=str(exc))
             raise
@@ -188,6 +192,8 @@ async def _run(db, source: Source) -> None:
 
     source.status = SourceStatus.READY
     await _report(db, source, 1.0, None)
+    await refresh_workspace_status(db, source.workspace_id)
+    await db.commit()
     await _refresh_outline(db, source.workspace_id)
     log.info(
         "ingest.done",

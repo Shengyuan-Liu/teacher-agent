@@ -119,6 +119,10 @@ export interface Citation {
   excerpt: string
   truncated: boolean
   images: string[]
+  source_type?: Source['type'] | null
+  source_origin?: string | null
+  source_url?: string | null
+  source_position?: number | null
 }
 
 export interface UsageCall {
@@ -162,6 +166,7 @@ export interface ChatMessage {
 export interface Capabilities {
   web_search: boolean
   llm_provider: string
+  llm_models: Record<'fast' | 'smart', string>
   embedding_provider: string
   limits: Record<string, number>
 }
@@ -180,11 +185,23 @@ export interface WebSearchResult {
   results: WebSearchCandidate[]
 }
 
+export type TraceResult =
+  | string
+  | number
+  | boolean
+  | null
+  | TraceResult[]
+  | { [key: string]: TraceResult }
+
 export interface TraceRecord {
   agent: string
   stage: string
   label: string
-  result: string | null
+  result: TraceResult
+  provider?: string
+  model?: string
+  tier?: 'fast' | 'smart'
+  reasoning_effort?: string
 }
 
 export interface PlanStage {
@@ -235,6 +252,20 @@ export async function fetchImage(
   let res = await fetch(url, { headers: authHeaders() })
   if (res.status === 401 && (await refreshSession())) {
     res = await fetch(url, { headers: authHeaders() })
+  }
+  if (!res.ok) throw new ApiError(res.statusText, res.status)
+  return res.blob()
+}
+
+export async function fetchSourceFile(
+  workspaceId: string,
+  sourceId: string,
+  allowRefresh = true,
+): Promise<Blob> {
+  const path = `/workspaces/${workspaceId}/sources/${sourceId}/content`
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() })
+  if (res.status === 401 && allowRefresh && (await refreshSession())) {
+    return fetchSourceFile(workspaceId, sourceId, false)
   }
   if (!res.ok) throw new ApiError(res.statusText, res.status)
   return res.blob()
@@ -306,11 +337,19 @@ export interface StageEvent {
   agent: string
   stage: string
   label: string
+  provider?: string
+  model?: string
+  tier?: 'fast' | 'smart'
+  reasoning_effort?: string
 }
 
 export interface StageResultEvent {
   stage: string
-  result: string | null
+  result: TraceResult
+  provider?: string
+  model?: string
+  tier?: 'fast' | 'smart'
+  reasoning_effort?: string
 }
 
 export interface AgentStreamHandlers {
@@ -331,6 +370,31 @@ export interface StreamHandlers extends AgentStreamHandlers {
   onToken: (delta: string) => void
   onWebCitation: (citation: WebCitation) => void
   onWebSearchSuggested: (suggestion: WebSearchSuggestion) => void
+}
+
+type DispatchHandlers = AgentStreamHandlers &
+  Partial<
+    Pick<
+      StreamHandlers,
+      'onCitations' | 'onToken' | 'onWebCitation' | 'onWebSearchSuggested'
+    >
+  >
+
+export function dispatchStreamEvent(
+  event: string,
+  data: string,
+  handlers: DispatchHandlers,
+): void {
+  const payload = JSON.parse(data)
+  if (event === 'stage') handlers.onStage(payload)
+  else if (event === 'stage_result') handlers.onStageResult(payload)
+  else if (event === 'citations') handlers.onCitations?.(payload)
+  else if (event === 'token') handlers.onToken?.(payload.delta)
+  else if (event === 'web_citation') handlers.onWebCitation?.(payload)
+  else if (event === 'web_search_suggested') handlers.onWebSearchSuggested?.(payload)
+  else if (event === 'usage') handlers.onUsage(payload)
+  else if (event === 'done') handlers.onDone(payload)
+  else if (event === 'error') handlers.onError(payload.message)
 }
 
 /** POST an SSE endpoint and dispatch its events; shared by every agent run. */
@@ -363,13 +427,7 @@ export async function streamAgent(
     const { done, value } = await reader.read()
     if (done) break
     for (const { event, data } of parser.push(decoder.decode(value, { stream: true }))) {
-      if (event === 'stage') handlers.onStage(JSON.parse(data))
-      else if (event === 'stage_result') handlers.onStageResult(JSON.parse(data))
-      else if (event === 'citations') handlers.onCitations?.(JSON.parse(data))
-      else if (event === 'token') handlers.onToken?.(JSON.parse(data).delta)
-      else if (event === 'usage') handlers.onUsage(JSON.parse(data))
-      else if (event === 'done') handlers.onDone(JSON.parse(data))
-      else if (event === 'error') handlers.onError(JSON.parse(data).message)
+      dispatchStreamEvent(event, data, handlers)
     }
   }
 }
@@ -405,14 +463,7 @@ export async function streamAnswer(
     if (done) break
 
     for (const { event, data } of parser.push(decoder.decode(value, { stream: true }))) {
-      if (event === 'stage') handlers.onStage(JSON.parse(data))
-      else if (event === 'citations') handlers.onCitations(JSON.parse(data))
-      else if (event === 'token') handlers.onToken(JSON.parse(data).delta)
-      else if (event === 'web_citation') handlers.onWebCitation(JSON.parse(data))
-      else if (event === 'web_search_suggested') handlers.onWebSearchSuggested(JSON.parse(data))
-      else if (event === 'usage') handlers.onUsage(JSON.parse(data))
-      else if (event === 'done') handlers.onDone(JSON.parse(data).grounded)
-      else if (event === 'error') handlers.onError(JSON.parse(data).message)
+      dispatchStreamEvent(event, data, handlers)
     }
   }
 }

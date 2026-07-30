@@ -39,7 +39,7 @@ export default function PlanPanel({ workspaceId }: { workspaceId: string }) {
 
   return (
     <section>
-      {plans.data.map((plan) => (
+      {plans.data.slice(0, 1).map((plan) => (
         <div key={plan.id} className="plan">
           <div className="plan-head">
             <strong>{plan.goal}</strong>

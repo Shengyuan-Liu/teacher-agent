@@ -93,13 +93,18 @@ def repo_to_markdown(repo_url: str) -> str:
     with tempfile.TemporaryDirectory(prefix="teacher-agent-clone-") as workdir:
         clone_dir = Path(workdir) / name
         log.info("repo.cloning", url=repo_url)
-        Repo.clone_from(repo_url, clone_dir, depth=1, single_branch=True)
+        Repo.clone_from(
+            repo_url,
+            clone_dir,
+            depth=1,
+            single_branch=True,
+            multi_options=[f"--filter=blob:limit={MAX_FILE_BYTES}"],
+            kill_after_timeout=settings.repo_clone_timeout,
+        )
         shutil.rmtree(clone_dir / ".git", ignore_errors=True)
 
         files = _select_files(clone_dir)
-        total = sum(path.stat().st_size for path in files)
-        if total > settings.max_repo_size_mb * 1024 * 1024:
-            raise ValueError(f"Repository text exceeds the {settings.max_repo_size_mb} MB limit")
+        validate_repo_files(files)
 
         sections = [_tree_section(owner, name, clone_dir, files)]
         for path in _reading_order(clone_dir, files):
@@ -128,6 +133,16 @@ def _select_files(root: Path) -> list[Path]:
             continue
         chosen.append(path)
     return chosen
+
+
+def validate_repo_files(files: list[Path]) -> None:
+    if len(files) > settings.max_repo_files:
+        raise ValueError(
+            f"Repository has {len(files)} eligible files; the limit is {settings.max_repo_files}"
+        )
+    total = sum(path.stat().st_size for path in files)
+    if total > settings.max_repo_size_mb * 1024 * 1024:
+        raise ValueError(f"Repository text exceeds the {settings.max_repo_size_mb} MB limit")
 
 
 def _reading_order(root: Path, files: list[Path]) -> list[Path]:

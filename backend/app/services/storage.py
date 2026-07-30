@@ -39,3 +39,9 @@ def save_image(workspace_id: uuid.UUID, source_id: uuid.UUID, image_id: str, dat
 
 def delete_workspace_files(workspace_id: uuid.UUID) -> None:
     shutil.rmtree(workspace_dir(workspace_id), ignore_errors=True)
+
+
+def delete_source_files(workspace_id: uuid.UUID, source_id: uuid.UUID, file_path: str) -> None:
+    """Remove an original/snapshot and any OCR figures owned by one source."""
+    Path(file_path).unlink(missing_ok=True)
+    shutil.rmtree(image_dir(workspace_id, source_id), ignore_errors=True)

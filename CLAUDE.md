@@ -71,14 +71,14 @@ Design docs, in reading order: [docs/README.md](docs/README.md) indexes them. `0
 
 ```
 stage         {agent, stage, label}   a step started
-stage_result  {stage, result}         one-line summary of what it returned
+stage_result  {stage, result}         complete JSON-safe structured node output
 token         {delta}                 QA only, streamed answer text
 citations     [...]                   QA only, narrowed to what the answer cited
 usage         {...}                   tokens and cost for the whole turn
 done          payload                 the artefact produced
 ```
 
-QA traces persist on `messages.trace` so a reloaded conversation can still expand its chain. Adding an agent means: a graph in `agents/`, a step-label map in `agent_runs.py`, and a `_summarise` case.
+QA traces persist on `messages.trace` so a reloaded conversation can still expand its chain. Adding an agent means: a graph in `agents/`, a step-label map in `agent_runs.py`, and JSON-safe node outputs that the shared trace serializer can stream and persist.
 
 **Two persistence layers, deliberately.** Business data uses SQLAlchemy async + asyncpg. The LangGraph Postgres checkpointer uses psycopg (hence `psycopg[binary,pool]`). Both hit the same database. `settings.sync_database_url` exists for Alembic and the checkpointer.
 
@@ -97,6 +97,8 @@ QA traces persist on `messages.trace` so a reloaded conversation can still expan
 **Answers must match the question's language.** "Answer in the same language as the question" buried in a prompt was ignored in practice — an English question came back in Japanese. `agents/language.py` resolves the language and names it explicitly, using script detection where it is definitive (kana settles Chinese vs Japanese) and declining to guess on short Latin text, because a wrong name is worse than none.
 
 **Cost is reported per turn, never guessed.** One question fans out into embedding, grade, rerank and generate calls, so `services/usage.py` accumulates them in a context-local ledger. Prices live in config; `MODEL_PRICES` and `RERANK_PRICES` **merge into** the defaults so adding one model does not drop the rest. A model with no configured price still reports tokens and leaves cost unknown. Rerankers billed per search go through `record_flat`.
+
+**Chat models are selected by intelligence tier, not by a global model string at call sites.** Use `IntelligenceTier.FAST` for routing, classification, query rewriting, and LLM reranking; use `IntelligenceTier.SMART` for user-facing answers, outlines, plans, quizzes, and evaluation judges. OpenAI defaults these roles to GPT-5.6 Luna (`none` reasoning) and Terra (`medium` reasoning). Other providers reuse `LLM_MODEL` unless `LLM_FAST_MODEL` / `LLM_SMART_MODEL` overrides are configured. New model calls must choose a tier explicitly.
 
 ## Two design red lines
 

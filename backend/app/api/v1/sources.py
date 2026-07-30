@@ -1,9 +1,11 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +17,8 @@ from app.models.workspace import WorkspaceStatus
 from app.rag.repo import parse_repo_url
 from app.schemas.source import GithubSourceCreate, SourceResponse, UrlSourceCreate
 from app.services.queue import get_queue
-from app.services.storage import source_path
+from app.services.storage import delete_source_files, source_path
+from app.services.workspace_status import refresh_workspace_status
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/sources", tags=["sources"])
 
@@ -145,6 +148,22 @@ async def list_sources(
     return list(result)
 
 
+@router.get("/{source_id}/content")
+async def get_source_content(
+    source_id: uuid.UUID,
+    workspace: Workspace = Depends(get_owned_workspace),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Return the stored original/snapshot after applying workspace ownership."""
+    source = await db.get(Source, source_id)
+    if source is None or source.workspace_id != workspace.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Source not found")
+    path = Path(source.file_path)
+    if not await asyncio.to_thread(path.is_file):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored source file not found")
+    return FileResponse(path, filename=source.title, content_disposition_type="inline")
+
+
 @router.post("/{source_id}/retry", response_model=SourceResponse)
 async def retry_source(
     source_id: uuid.UUID,
@@ -156,6 +175,7 @@ async def retry_source(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source not found")
     source.status = SourceStatus.PENDING
     source.error = None
+    workspace.status = WorkspaceStatus.INGESTING
     await db.commit()
     queue = await get_queue()
     await queue.enqueue_job("ingest_source", str(source.id))
@@ -171,5 +191,7 @@ async def delete_source(
     source = await db.get(Source, source_id)
     if source is None or source.workspace_id != workspace.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source not found")
-    Path(source.file_path).unlink(missing_ok=True)  # noqa: ASYNC240 - tiny local file
+    delete_source_files(workspace.id, source.id, source.file_path)
     await db.delete(source)
+    await db.flush()
+    await refresh_workspace_status(db, workspace.id)

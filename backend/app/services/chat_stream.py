@@ -18,7 +18,9 @@ from app.models import ChatSession, Message, PlanStage, StudyPlan
 from app.rag.retriever import RetrievedChunk
 from app.services import usage
 from app.services.agent_runs import QUIZ_STEPS
+from app.services.providers import IntelligenceTier, model_trace
 from app.services.rate_limit import over_rate_limit
+from app.services.trace import trace_value
 
 log = structlog.get_logger()
 
@@ -59,12 +61,16 @@ def _quiz_citations(questions: list[dict], sections: list[dict]) -> list[dict]:
             {
                 "n": index,
                 "chunk_id": (q["source"]).get("chunk_id") or "",
-                "source_id": "",
+                "source_id": section.get("source_id") or "",
                 "source_title": (q["source"]).get("title") or "",
                 "heading": (q["source"]).get("heading"),
                 "excerpt": content[:EXCERPT_CHARS],
                 "truncated": len(content) > EXCERPT_CHARS,
                 "images": [],
+                "source_type": section.get("source_type"),
+                "source_origin": section.get("source_origin"),
+                "source_url": section.get("source_url"),
+                "source_position": section.get("source_position"),
             }
         )
     citations.sort(key=lambda c: c["n"])
@@ -97,6 +103,12 @@ PLAN_CHAT_STEPS = {
     "revise": "Revising the plan",
     "save": "Saving the plan",
 }
+
+QUIZ_MODEL_TIERS = {
+    "generate": IntelligenceTier.SMART,
+    "validate": IntelligenceTier.SMART,
+}
+PLAN_MODEL_TIERS = {"revise": IntelligenceTier.SMART}
 
 
 def _format_current_plan(plan: StudyPlan | None) -> str:
@@ -142,6 +154,10 @@ def _citations_payload(context: list[RetrievedChunk]) -> list[dict]:
             "excerpt": c.content[:EXCERPT_CHARS],
             "truncated": len(c.content) > EXCERPT_CHARS,
             "images": [i["id"] for i in c.images],
+            "source_type": c.source_type,
+            "source_origin": c.source_origin,
+            "source_url": c.source_url,
+            "source_position": c.source_position,
         }
         for i, c in enumerate(context, 1)
     ]
@@ -165,7 +181,7 @@ async def _run_quiz(
         "questions": [],
     }
     order = list(QUIZ_STEPS)
-    yield stage(order[0], QUIZ_STEPS[order[0]])
+    yield stage(order[0], QUIZ_STEPS[order[0]], tier=QUIZ_MODEL_TIERS.get(order[0]))
     sections: list[dict] = []
     questions: list[dict] = []
     try:
@@ -175,16 +191,16 @@ async def _run_quiz(
                     continue
                 if node == "gather":
                     sections = payload["sections"]
-                    summary = f"{len(sections)} sections"
-                elif node == "generate":
-                    summary = f"{len(payload['raw'])} drafted"
-                else:
+                elif node == "validate":
                     questions = payload["questions"]
-                    summary = f"{len(questions)} kept"
-                yield stage_result(node, QUIZ_STEPS[node], summary)
+                yield stage_result(node, QUIZ_STEPS[node], payload, tier=QUIZ_MODEL_TIERS.get(node))
                 following = order[order.index(node) + 1 :]
                 if following:
-                    yield stage(following[0], QUIZ_STEPS[following[0]])
+                    yield stage(
+                        following[0],
+                        QUIZ_STEPS[following[0]],
+                        tier=QUIZ_MODEL_TIERS.get(following[0]),
+                    )
     except Exception as exc:
         log.error("chat.quiz_failed", session_id=str(session.id), error=str(exc))
         yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
@@ -238,40 +254,76 @@ async def _run_plan(
         )
         current_text = _format_current_plan(plan)
         done_titles = {s.title for s in plan.stages if s.status == "done"} if plan else set()
-        plan_id = plan.id if plan else None
+        previous_plan = (
+            {
+                "goal": plan.goal,
+                "daily_minutes": plan.daily_minutes,
+                "deadline": plan.deadline,
+            }
+            if plan
+            else None
+        )
+        current_plan = (
+            {
+                "id": str(plan.id),
+                "goal": plan.goal,
+                "daily_minutes": plan.daily_minutes,
+                "deadline": plan.deadline.isoformat() if plan.deadline else None,
+                "stages": [
+                    {
+                        "id": str(item.id),
+                        "position": item.position,
+                        "title": item.title,
+                        "description": item.description,
+                        "topics": item.topics,
+                        "activities": item.activities,
+                        "estimated_minutes": item.estimated_minutes,
+                        "status": item.status,
+                    }
+                    for item in plan.stages
+                ],
+            }
+            if plan
+            else None
+        )
     yield stage_result(
-        "load", PLAN_CHAT_STEPS["load"], "current plan loaded" if plan_id else "no plan yet"
+        "load",
+        PLAN_CHAT_STEPS["load"],
+        {"current_plan": current_plan},
     )
 
-    yield stage("revise", PLAN_CHAT_STEPS["revise"])
+    yield stage("revise", PLAN_CHAT_STEPS["revise"], tier=PLAN_MODEL_TIERS["revise"])
     try:
-        stages = await revise_plan(session.workspace_id, question, current_text, history)
+        stages = await revise_plan(
+            session.workspace_id,
+            question,
+            current_text,
+            history,
+            daily_minutes=previous_plan["daily_minutes"] if previous_plan else 60,
+            deadline=previous_plan["deadline"] if previous_plan else None,
+        )
     except Exception as exc:
         log.error("chat.plan_failed", session_id=str(session.id), error=str(exc))
         yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
         return
-    yield stage_result("revise", PLAN_CHAT_STEPS["revise"], f"{len(stages)} stages")
+    yield stage_result(
+        "revise",
+        PLAN_CHAT_STEPS["revise"],
+        {"stages": stages},
+        tier=PLAN_MODEL_TIERS["revise"],
+    )
 
     yield stage("save", PLAN_CHAT_STEPS["save"])
     async with AsyncSessionLocal() as db:
-        if plan_id is not None:
-            plan = await db.scalar(
-                select(StudyPlan)
-                .options(selectinload(StudyPlan.stages))
-                .where(StudyPlan.id == plan_id)
-            )
-            for old in list(plan.stages):
-                await db.delete(old)
-            await db.flush()
-        else:
-            plan = StudyPlan(
-                workspace_id=session.workspace_id,
-                user_id=user_id,
-                goal=question[:500],
-                daily_minutes=60,
-            )
-            db.add(plan)
-            await db.flush()
+        plan = StudyPlan(
+            workspace_id=session.workspace_id,
+            user_id=user_id,
+            goal=previous_plan["goal"] if previous_plan else question[:500],
+            daily_minutes=previous_plan["daily_minutes"] if previous_plan else 60,
+            deadline=previous_plan["deadline"] if previous_plan else None,
+        )
+        db.add(plan)
+        await db.flush()
         for position, stage_data in enumerate(stages):
             db.add(
                 PlanStage(
@@ -282,7 +334,11 @@ async def _run_plan(
                 )
             )
         await db.commit()
-    yield stage_result("save", PLAN_CHAT_STEPS["save"], "updated")
+    yield stage_result(
+        "save",
+        PLAN_CHAT_STEPS["save"],
+        {"plan_id": str(plan.id), "saved_stages": len(stages)},
+    )
 
     content = _render_plan(stages, done_titles)
     yield {"event": "token", "data": json.dumps({"delta": content})}
@@ -361,19 +417,49 @@ async def stream_answer(
     # helpers read it late so every step is tagged consistently.
     agent = "qa"
 
-    def stage(name: str, label: str) -> dict:
+    def stage(
+        name: str,
+        label: str,
+        agent_name: str | None = None,
+        tier: IntelligenceTier | None = None,
+    ) -> dict:
+        payload = {"agent": agent_name or agent, "stage": name, "label": label}
+        if tier is not None:
+            payload.update(model_trace(tier))
         return {
             "event": "stage",
-            "data": json.dumps({"agent": agent, "stage": name, "label": label}),
+            "data": json.dumps(payload),
         }
 
-    def stage_result(name: str, label: str, result: str | None) -> dict:
-        trace.append({"agent": agent, "stage": name, "label": label, "result": result})
-        return {"event": "stage_result", "data": json.dumps({"stage": name, "result": result})}
+    def stage_result(
+        name: str,
+        label: str,
+        result,
+        agent_name: str | None = None,
+        tier: IntelligenceTier | None = None,
+    ) -> dict:
+        detail = trace_value(result)
+        record = {
+            "agent": agent_name or agent,
+            "stage": name,
+            "label": label,
+            "result": detail,
+        }
+        if tier is not None:
+            record.update(model_trace(tier))
+        trace.append(record)
+        payload = {"stage": name, "result": detail}
+        if tier is not None:
+            payload.update(model_trace(tier))
+        return {
+            "event": "stage_result",
+            "data": json.dumps(payload, ensure_ascii=False),
+        }
 
-    # Decide intent before emitting anything, so the router step is tagged with
-    # the flow it selected. web only when the deployment allows it; force_web is
-    # the explicit suggestion click, else the user's own words.
+    # Show the router immediately while its model call is running. Web is still
+    # selected only when the deployment allows it and this turn explicitly asks.
+    router_tier = None if force_web and settings.web_search_enabled else IntelligenceTier.FAST
+    yield stage("router", "Understanding request", agent_name="router", tier=router_tier)
     intent = "qa"
     if force_web and settings.web_search_enabled:
         intent = "web"
@@ -388,8 +474,18 @@ async def stream_answer(
     _routed = {"web": "web search", "quiz": "a practice quiz", "plan": "a study plan"}.get(
         intent, "your material"
     )
-    yield stage("router", "Understanding request")
-    yield stage_result("router", "Understanding request", _routed)
+    yield stage_result(
+        "router",
+        "Understanding request",
+        {
+            "intent": intent,
+            "routed_to": _routed,
+            "forced_by_user_action": force_web,
+            "web_search_enabled": settings.web_search_enabled,
+        },
+        agent_name="router",
+        tier=router_tier,
+    )
 
     if (
         intent == "web"
@@ -418,11 +514,13 @@ async def stream_answer(
 
     # First real step, so the UI shows progress before the graph's first update.
     yield (
-        stage("web_search", "Searching the web")
+        stage("web_search", "Searching the web", tier=IntelligenceTier.FAST)
         if intent == "web"
         else stage("retrieve", "Searching material")
     )
 
+    grade_tier: IntelligenceTier | None = None
+    web_generate_tier: IntelligenceTier | None = None
     try:
         async for mode, payload in qa_graph.astream(state, stream_mode=["updates", "messages"]):
             if mode == "messages":
@@ -437,22 +535,20 @@ async def stream_answer(
                 if "retrieve" in payload:
                     context = payload["retrieve"]["context"]
                     citations = _citations_payload(context)
-                    sources = ", ".join(sorted({c.source_title for c in context})[:3])
-                    yield stage_result(
-                        "retrieve",
-                        "Searching material",
-                        f"{len(context)} sections · {sources}" if context else "nothing found",
-                    )
-                    yield stage("grade", "Checking coverage")
+                    yield stage_result("retrieve", "Searching material", payload["retrieve"])
+                    grade_tier = IntelligenceTier.FAST if context else None
+                    yield stage("grade", "Checking coverage", tier=grade_tier)
                 if "grade" in payload:
                     grounded = payload["grade"]["grounded"]
                     yield stage_result(
-                        "grade",
-                        "Checking coverage",
-                        "material covers this" if grounded else "not covered by the material",
+                        "grade", "Checking coverage", payload["grade"], tier=grade_tier
                     )
                     if grounded:
-                        yield stage("generate", "Writing answer from material")
+                        yield stage(
+                            "generate",
+                            "Writing answer from material",
+                            tier=IntelligenceTier.SMART,
+                        )
                         yield {"event": "citations", "data": json.dumps(citations)}
                     else:
                         # Not covered: decline, and — only if the deployment allows
@@ -468,22 +564,47 @@ async def stream_answer(
                                     }
                                 ),
                             }
-                        yield stage("decline", "Writing a decline")
+                        yield stage("decline", "Writing a decline", tier=IntelligenceTier.SMART)
                 if "web_search" in payload:
                     used_web_search = True
                     web_citations = payload["web_search"]["web_citations"]
                     for wc in web_citations:
                         yield {"event": "web_citation", "data": json.dumps(wc)}
                     yield stage_result(
-                        "web_search", "Searching the web", f"{len(web_citations)} pages fetched"
+                        "web_search",
+                        "Searching the web",
+                        payload["web_search"],
+                        tier=IntelligenceTier.FAST,
                     )
-                    yield stage("web_generate", "Answering from the web")
+                    web_generate_tier = (
+                        IntelligenceTier.SMART if payload["web_search"]["web_results"] else None
+                    )
+                    yield stage(
+                        "web_generate",
+                        "Answering from the web",
+                        tier=web_generate_tier,
+                    )
                 if "generate" in payload:
-                    yield stage_result("generate", "Writing answer from material", None)
+                    yield stage_result(
+                        "generate",
+                        "Writing answer from material",
+                        payload["generate"],
+                        tier=IntelligenceTier.SMART,
+                    )
                 if "web_generate" in payload:
-                    yield stage_result("web_generate", "Answering from the web", None)
+                    yield stage_result(
+                        "web_generate",
+                        "Answering from the web",
+                        payload["web_generate"],
+                        tier=web_generate_tier,
+                    )
                 if "decline" in payload:
-                    yield stage_result("decline", "Writing a decline", None)
+                    yield stage_result(
+                        "decline",
+                        "Writing a decline",
+                        payload["decline"],
+                        tier=IntelligenceTier.SMART,
+                    )
     except Exception as exc:
         log.error("chat.stream_failed", session_id=str(session_id), error=str(exc))
         yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}

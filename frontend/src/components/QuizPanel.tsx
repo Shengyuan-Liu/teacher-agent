@@ -147,12 +147,32 @@ export default function QuizPanel({ workspaceId }: { workspaceId: string }) {
           onStage: (ev) =>
             setSteps((s) => [
               ...s,
-              { key: ev.stage, agent: ev.agent, label: ev.label, result: null, done: false },
+              {
+                key: ev.stage,
+                agent: ev.agent,
+                label: ev.label,
+                result: null,
+                done: false,
+                provider: ev.provider,
+                model: ev.model,
+                tier: ev.tier,
+                reasoning_effort: ev.reasoning_effort,
+              },
             ]),
           onStageResult: (ev) =>
             setSteps((s) =>
               s.map((step) =>
-                step.key === ev.stage ? { ...step, result: ev.result, done: true } : step,
+                step.key === ev.stage
+                  ? {
+                      ...step,
+                      result: ev.result,
+                      done: true,
+                      provider: ev.provider ?? step.provider,
+                      model: ev.model ?? step.model,
+                      tier: ev.tier ?? step.tier,
+                      reasoning_effort: ev.reasoning_effort ?? step.reasoning_effort,
+                    }
+                  : step,
               ),
             ),
           onUsage: () => {},

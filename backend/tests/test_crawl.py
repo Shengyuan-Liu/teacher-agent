@@ -1,4 +1,15 @@
-from app.rag.crawl import demote_headings, extract_links, in_scope, normalise, scope_prefix
+import httpx
+import pytest
+
+from app.rag import crawl as crawl_module
+from app.rag.crawl import (
+    _get_validated,
+    demote_headings,
+    extract_links,
+    in_scope,
+    normalise,
+    scope_prefix,
+)
 
 
 class TestScope:
@@ -17,10 +28,10 @@ class TestScope:
         prefix = scope_prefix("https://comp-lin-alg.github.io/")
         assert not in_scope("https://github.com/comp-lin-alg", prefix)
 
-    def test_binary_and_asset_urls_are_out(self):
+    def test_assets_are_out_but_linked_pdfs_are_ingestable(self):
         prefix = scope_prefix("https://example.com/")
         assert not in_scope("https://example.com/logo.png", prefix)
-        assert not in_scope("https://example.com/paper.pdf", prefix)
+        assert in_scope("https://example.com/paper.pdf", prefix)
 
 
 class TestNormalise:
@@ -46,3 +57,21 @@ def test_extract_links_resolves_and_filters():
 
 def test_demote_headings_keeps_page_title_on_top():
     assert demote_headings("# Section\n\n## Sub") == "## Section\n\n### Sub"
+
+
+async def test_redirect_is_validated_before_the_next_request(monkeypatch):
+    requested = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/secret"})
+
+    def guard(url: str) -> None:
+        if "127.0.0.1" in url:
+            raise ValueError("private address")
+
+    monkeypatch.setattr(crawl_module, "_assert_public_host", guard)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ValueError, match="private address"):
+            await _get_validated(client, "https://example.com/start")
+    assert requested == ["https://example.com/start"]

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.redis_client import get_redis
+from app.services.providers import IntelligenceTier, model_name
 
 router = APIRouter(tags=["system"])
 
@@ -45,6 +46,7 @@ async def capabilities() -> dict[str, Any]:
     return {
         "web_search": settings.web_search_enabled,
         "llm_provider": settings.llm_provider,
+        "llm_models": {tier.value: model_name(tier) for tier in IntelligenceTier},
         "embedding_provider": settings.embedding_provider,
         "limits": {
             "max_upload_size_mb": settings.max_upload_size_mb,

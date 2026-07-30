@@ -1,6 +1,14 @@
 import pytest
 
-from app.rag.repo import SECTION_CHARS, _file_sections, _select_files, _windows, parse_repo_url
+from app.core.config import settings
+from app.rag.repo import (
+    SECTION_CHARS,
+    _file_sections,
+    _select_files,
+    _windows,
+    parse_repo_url,
+    validate_repo_files,
+)
 
 
 class TestParseRepoUrl:
@@ -35,6 +43,17 @@ def test_select_files_applies_the_filters(tmp_path):
 
     names = {p.name for p in _select_files(tmp_path)}
     assert names == {"keep.py", "README.md"}
+
+
+def test_repository_file_count_has_a_hard_limit(tmp_path, monkeypatch):
+    files = []
+    for name in ("a.py", "b.py"):
+        path = tmp_path / name
+        path.write_text("pass")
+        files.append(path)
+    monkeypatch.setattr(settings, "max_repo_files", 1)
+    with pytest.raises(ValueError, match="eligible files"):
+        validate_repo_files(files)
 
 
 def test_code_files_are_fenced_and_windowed(tmp_path):

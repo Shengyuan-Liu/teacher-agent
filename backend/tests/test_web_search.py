@@ -103,7 +103,7 @@ async def test_graph_never_searches_without_web_intent(monkeypatch):
         raise AssertionError("web search must never be constructed without a web intent")
 
     monkeypatch.setattr(qa, "retrieve", fake_retrieve)
-    monkeypatch.setattr(qa, "chat_model", lambda: _FakeChat())
+    monkeypatch.setattr(qa, "chat_model", lambda *_: _FakeChat())
     monkeypatch.setattr(qa, "get_search_provider", must_not_run)
 
     state = await qa.qa_graph.ainvoke(_state(intent="qa"))
@@ -126,7 +126,7 @@ async def test_graph_searches_on_web_intent(monkeypatch):
         return Page(url=url, title="A", markdown="page content")
 
     monkeypatch.setattr(qa, "retrieve", fake_retrieve)
-    monkeypatch.setattr(qa, "chat_model", lambda: _FakeChat())
+    monkeypatch.setattr(qa, "chat_model", lambda *_: _FakeChat())
     monkeypatch.setattr(qa, "get_search_provider", lambda: _Provider())
     monkeypatch.setattr(qa, "fetch_page", fake_fetch)
 
@@ -138,28 +138,28 @@ async def test_graph_searches_on_web_intent(monkeypatch):
 async def test_router_defaults_to_qa(monkeypatch):
     from app.agents import router
 
-    monkeypatch.setattr(router, "chat_model", lambda: _RouterChat("qa"))
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("qa"))
     assert await router.classify_intent("explain markov chains") == "qa"
 
 
 async def test_router_detects_explicit_web(monkeypatch):
     from app.agents import router
 
-    monkeypatch.setattr(router, "chat_model", lambda: _RouterChat("web"))
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("web"))
     assert await router.classify_intent("上网查一下谁是 Markov") == "web"
 
 
 async def test_router_detects_quiz(monkeypatch):
     from app.agents import router
 
-    monkeypatch.setattr(router, "chat_model", lambda: _RouterChat("quiz"))
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("quiz"))
     assert await router.classify_intent("帮我出几道题考考我") == "quiz"
 
 
 async def test_router_detects_plan(monkeypatch):
     from app.agents import router
 
-    monkeypatch.setattr(router, "chat_model", lambda: _RouterChat("plan"))
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("plan"))
     assert await router.classify_intent("帮我制定一个学习计划") == "plan"
 
 

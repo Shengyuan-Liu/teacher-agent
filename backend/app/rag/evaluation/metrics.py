@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage
 
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 FAITHFULNESS_PROMPT = """You are checking whether an answer stays within its evidence.
 
@@ -72,7 +72,7 @@ def mrr(retrieved_ids: list[str], gold_id: str) -> float:
 
 
 async def faithfulness(context: str, answer: str) -> Judgement:
-    reply = await chat_model().ainvoke(
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke(
         [HumanMessage(FAITHFULNESS_PROMPT.format(context=context[:12000], answer=answer))]
     )
     parsed = _json(reply.text)
@@ -84,7 +84,7 @@ async def faithfulness(context: str, answer: str) -> Judgement:
 
 
 async def correctness(question: str, reference: str, candidate: str) -> Judgement:
-    reply = await chat_model().ainvoke(
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke(
         [
             HumanMessage(
                 CORRECTNESS_PROMPT.format(

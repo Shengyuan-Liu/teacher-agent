@@ -118,7 +118,13 @@ State: `{ workspace_id, outline(sections), current_section_index, transcript, pe
 | 出题、主观题批改 | 主力模型 + 结构化输出（如 JSON schema / function calling） | 需要严格的格式与可推理性 |
 | Planner 的时长分配等纯逻辑部分 | 可退化为规则计算，不一定需要 LLM | 降低不必要的模型依赖 |
 
-模型供应商通过统一的 `ModelProvider` 配置层接入（LangChain 的 `init_chat_model` 风格），支持 OpenAI / Anthropic / 本地 Ollama 按 agent 甚至按节点配置，满足"不绑定单一供应商"的要求。
+模型供应商通过统一的分层接口接入，支持 OpenAI / Anthropic / 本地 Ollama，并按节点选择：
+
+- `fast`：意图路由、相关性判断、搜索词生成、LLM 重排等高频轻任务；OpenAI 默认 `gpt-5.6-luna`，推理强度 `none`。
+- `smart`：面向用户的回答、大纲、计划和出题等质量敏感任务；OpenAI 默认 `gpt-5.6-terra`，推理强度 `medium`。
+- `LLM_FAST_MODEL` / `LLM_SMART_MODEL` 可以分别覆盖模型；非 OpenAI provider 未配置覆盖值时继续使用 `LLM_MODEL`。
+
+运行时的实际映射由 `/capabilities` 返回，token 与成本记录仍按每次响应实际报告的模型累计。
 
 ## 7. 测试策略
 

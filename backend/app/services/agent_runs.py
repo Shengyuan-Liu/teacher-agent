@@ -19,6 +19,8 @@ from app.agents.quiz import quiz_graph
 from app.core.database import AsyncSessionLocal
 from app.models import PlanStage, Question, StudyPlan
 from app.services import usage
+from app.services.providers import IntelligenceTier, model_trace
+from app.services.trace import trace_value
 
 PLAN_STEPS = {
     "load_context": "Loading topic outline",
@@ -30,47 +32,56 @@ QUIZ_STEPS = {
     "validate": "Checking answers against the material",
 }
 
+PLAN_MODEL_TIERS = {"draft": IntelligenceTier.SMART}
+QUIZ_MODEL_TIERS = {
+    "generate": IntelligenceTier.SMART,
+    "validate": IntelligenceTier.SMART,
+}
+
 
 def _event(name: str, payload: dict | list) -> dict:
     return {"event": name, "data": json.dumps(payload, ensure_ascii=False)}
 
 
 async def _run_graph(
-    graph, state: dict, agent: str, steps: dict[str, str], results: dict, trace: list[dict]
+    graph,
+    state: dict,
+    agent: str,
+    steps: dict[str, str],
+    model_tiers: dict[str, IntelligenceTier],
+    results: dict,
+    trace: list[dict],
 ) -> AsyncGenerator[dict, None]:
     order = list(steps)
-    yield _event("stage", {"agent": agent, "stage": order[0], "label": steps[order[0]]})
+    first = {"agent": agent, "stage": order[0], "label": steps[order[0]]}
+    if tier := model_tiers.get(order[0]):
+        first.update(model_trace(tier))
+    yield _event("stage", first)
 
     async for update in graph.astream(state, stream_mode="updates"):
         for node, payload in update.items():
             if node not in steps:
                 continue
             results.update(payload or {})
-            summary = _summarise(node, payload or {})
-            trace.append({"agent": agent, "stage": node, "label": steps[node], "result": summary})
-            yield _event("stage_result", {"stage": node, "result": summary})
+            detail = trace_value(payload or {})
+            record = {"agent": agent, "stage": node, "label": steps[node], "result": detail}
+            if tier := model_tiers.get(node):
+                record.update(model_trace(tier))
+            trace.append(record)
+            result_event = {"stage": node, "result": detail}
+            if tier := model_tiers.get(node):
+                result_event.update(model_trace(tier))
+            yield _event("stage_result", result_event)
             following = order[order.index(node) + 1 :]
             if following:
-                yield _event(
-                    "stage",
-                    {"agent": agent, "stage": following[0], "label": steps[following[0]]},
-                )
-
-
-def _summarise(node: str, payload: dict) -> str | None:
-    match node:
-        case "load_context":
-            return f"{len(payload['outline']['topics'])} topics"
-        case "draft":
-            return f"{len(payload['stages'])} stages"
-        case "gather":
-            titles = {s["title"] for s in payload["sections"]}
-            return f"{len(payload['sections'])} sections from {len(titles)} sources"
-        case "generate":
-            return f"{len(payload['raw'])} drafted"
-        case "validate":
-            return f"{len(payload['questions'])} kept"
-    return None
+                next_stage = {
+                    "agent": agent,
+                    "stage": following[0],
+                    "label": steps[following[0]],
+                }
+                if tier := model_tiers.get(following[0]):
+                    next_stage.update(model_trace(tier))
+                yield _event("stage", next_stage)
 
 
 async def stream_plan(
@@ -92,7 +103,9 @@ async def stream_plan(
     results: dict = {}
     trace: list[dict] = []
     try:
-        async for event in _run_graph(planner_graph, state, "planner", PLAN_STEPS, results, trace):
+        async for event in _run_graph(
+            planner_graph, state, "planner", PLAN_STEPS, PLAN_MODEL_TIERS, results, trace
+        ):
             yield event
     except Exception as exc:
         yield _event("error", {"message": str(exc)[:500]})
@@ -132,7 +145,9 @@ async def stream_quiz(
     results: dict = {}
     trace: list[dict] = []
     try:
-        async for event in _run_graph(quiz_graph, state, "quiz", QUIZ_STEPS, results, trace):
+        async for event in _run_graph(
+            quiz_graph, state, "quiz", QUIZ_STEPS, QUIZ_MODEL_TIERS, results, trace
+        ):
             yield event
     except Exception as exc:
         yield _event("error", {"message": str(exc)[:500]})

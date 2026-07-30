@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage
 
 from app.rag.search import SearchResult, get_search_provider
 from app.services import usage
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 QUERY_PROMPT = """You are preparing web searches to supplement a study workspace.
 
@@ -50,7 +50,7 @@ async def search_candidates(
 
 
 async def _build_queries(workspace: str, intent: str) -> list[str]:
-    reply = await chat_model().ainvoke(
+    reply = await chat_model(IntelligenceTier.FAST).ainvoke(
         [HumanMessage(QUERY_PROMPT.format(workspace=workspace, intent=intent))]
     )
     usage.record_message("web_queries", reply)
@@ -61,7 +61,7 @@ async def _rank(intent: str, candidates: list[SearchResult]) -> list[dict]:
     listing = "\n".join(
         f"[{i}] {c.title} — {c.domain}\n{c.snippet[:200]}" for i, c in enumerate(candidates)
     )
-    reply = await chat_model().ainvoke(
+    reply = await chat_model(IntelligenceTier.FAST).ainvoke(
         [HumanMessage(RANK_PROMPT.format(intent=intent, candidates=listing))]
     )
     usage.record_message("web_rank", reply)

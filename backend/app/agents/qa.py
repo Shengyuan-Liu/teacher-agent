@@ -21,7 +21,7 @@ from app.rag.crawl import fetch_page
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
 from app.rag.search import get_search_provider
 from app.services import usage
-from app.services.providers import chat_model
+from app.services.providers import IntelligenceTier, chat_model
 
 TOP_K = 6
 WEB_PAGE_CHARS = 4000
@@ -131,7 +131,7 @@ async def grade(state: QAState) -> dict:
     prompt = GRADE_PROMPT.format(
         question=state["question"], excerpts=_format_excerpts(state["context"])
     )
-    reply = await chat_model().ainvoke([HumanMessage(prompt)])
+    reply = await chat_model(IntelligenceTier.FAST).ainvoke([HumanMessage(prompt)])
     usage.record_message("grade", reply)
     return {"grounded": "YES" in reply.text.upper()}
 
@@ -155,7 +155,7 @@ async def generate(state: QAState) -> dict:
     # astream, not ainvoke: graph stream_mode="messages" only relays real
     # provider tokens, and the client renders them as they arrive.
     parts, final = [], None
-    async for chunk in chat_model().astream(messages):
+    async for chunk in chat_model(IntelligenceTier.SMART).astream(messages):
         parts.append(chunk.text)
         final = chunk if final is None else final + chunk
     if final is not None:
@@ -165,7 +165,7 @@ async def generate(state: QAState) -> dict:
 
 async def decline(state: QAState) -> dict:
     parts, final = [], None
-    async for chunk in chat_model().astream(
+    async for chunk in chat_model(IntelligenceTier.SMART).astream(
         [
             HumanMessage(
                 DECLINE_PROMPT.format(
@@ -184,7 +184,7 @@ async def decline(state: QAState) -> dict:
 
 async def _build_web_query(state: QAState) -> str:
     hints = ", ".join(sorted({c.heading or c.source_title for c in state["context"]})[:3])
-    reply = await chat_model().ainvoke(
+    reply = await chat_model(IntelligenceTier.FAST).ainvoke(
         [HumanMessage(WEB_QUERY_PROMPT.format(question=state["question"], hints=hints or "none"))]
     )
     usage.record_message("web_query", reply)
@@ -241,7 +241,7 @@ async def web_generate(state: QAState) -> dict:
         messages.append({"role": role, "content": content})
     messages.append(HumanMessage(state["question"]))
     parts, final = [], None
-    async for chunk in chat_model().astream(messages):
+    async for chunk in chat_model(IntelligenceTier.SMART).astream(messages):
         parts.append(chunk.text)
         final = chunk if final is None else final + chunk
     if final is not None:

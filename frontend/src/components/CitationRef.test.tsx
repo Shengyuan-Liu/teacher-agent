@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react'
-import { expect, test } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
 import type { Citation } from '@/lib/api'
 import CitationRef from './CitationRef'
 
@@ -13,7 +13,10 @@ const citation: Citation = {
   excerpt: 'Definition 5.3.1. The counting process associated to a sequence.',
   truncated: true,
   images: [],
+  source_origin: 'https://example.com/notes',
 }
+
+afterEach(cleanup)
 
 test('hovering the marker reveals the source excerpt', () => {
   const { container } = render(<CitationRef n={2} citation={citation} />)
@@ -24,6 +27,18 @@ test('hovering the marker reveals the source excerpt', () => {
   fireEvent.mouseEnter(wrap!)
   expect(screen.getByText(/Definition 5.3.1/)).toBeTruthy()
   expect(screen.getByText(/LectureNotes\.pdf/)).toBeTruthy()
+})
+
+test('clicking a linked citation opens its original source', () => {
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  const rendered = render(<CitationRef n={2} citation={citation} />)
+  fireEvent.click(rendered.getByTitle('Open source'))
+  expect(open).toHaveBeenCalledWith(
+    'https://example.com/notes',
+    '_blank',
+    'noopener,noreferrer',
+  )
+  open.mockRestore()
 })
 
 test('a marker with no matching citation stays a plain [n]', () => {

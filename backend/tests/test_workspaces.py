@@ -1,5 +1,26 @@
 from httpx import AsyncClient
 
+from app.models import SourceStatus, WorkspaceStatus
+from app.services.workspace_status import derive_workspace_status
+
+
+def test_workspace_status_is_derived_from_all_sources():
+    assert derive_workspace_status([]) is WorkspaceStatus.EMPTY
+    assert derive_workspace_status([SourceStatus.READY]) is WorkspaceStatus.READY
+    assert (
+        derive_workspace_status([SourceStatus.PENDING, SourceStatus.READY])
+        is WorkspaceStatus.INGESTING
+    )
+    assert (
+        derive_workspace_status([SourceStatus.PARSING, SourceStatus.FAILED])
+        is WorkspaceStatus.INGESTING
+    )
+    assert (
+        derive_workspace_status([SourceStatus.READY, SourceStatus.FAILED])
+        is WorkspaceStatus.PARTIAL
+    )
+    assert derive_workspace_status([SourceStatus.FAILED]) is WorkspaceStatus.PARTIAL
+
 
 async def test_workspace_crud(auth_client: AsyncClient):
     res = await auth_client.post(

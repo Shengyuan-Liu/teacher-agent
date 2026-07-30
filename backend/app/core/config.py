@@ -36,6 +36,12 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["openai", "anthropic", "ollama"] = "anthropic"
     llm_model: str = "claude-sonnet-5"
+    # Optional role overrides. OpenAI defaults to Luna for fast tasks and
+    # Terra for smart tasks; other providers fall back to LLM_MODEL.
+    llm_fast_model: str | None = None
+    llm_smart_model: str | None = None
+    llm_fast_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "none"
+    llm_smart_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
     embedding_provider: Literal["openai", "ollama"] = "openai"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
@@ -62,6 +68,9 @@ class Settings(BaseSettings):
         "claude-opus-5": (15.0, 75.0),
         "claude-haiku-4-5-20251001": (1.0, 5.0),
         "gpt-5": (1.25, 10.0),
+        "gpt-5.6-luna": (1.0, 6.0),
+        "gpt-5.6-terra": (2.5, 15.0),
+        "gpt-5.6-sol": (5.0, 30.0),
         "text-embedding-3-small": (0.02, 0.0),
         "text-embedding-3-large": (0.13, 0.0),
     }
@@ -108,6 +117,8 @@ class Settings(BaseSettings):
 
     max_upload_size_mb: int = 100
     max_repo_size_mb: int = 200
+    max_repo_files: int = 2000
+    repo_clone_timeout: int = 120
     max_crawl_pages: int = 100
     max_crawl_depth: int = 3
     # SSRF guard. Proxies with fake-IP DNS resolve every host into reserved

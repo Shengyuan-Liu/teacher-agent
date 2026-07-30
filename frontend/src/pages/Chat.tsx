@@ -142,6 +142,10 @@ export default function Chat() {
             label: t.label,
             result: t.result,
             done: true,
+            provider: t.provider,
+            model: t.model,
+            tier: t.tier,
+            reasoning_effort: t.reasoning_effort,
           })),
         })),
       )
@@ -187,14 +191,34 @@ export default function Chat() {
             ...last,
             trace: [
               ...(last.trace ?? []),
-              { key: e.stage, agent: e.agent, label: e.label, result: null, done: false },
+              {
+                key: e.stage,
+                agent: e.agent,
+                label: e.label,
+                result: null,
+                done: false,
+                provider: e.provider,
+                model: e.model,
+                tier: e.tier,
+                reasoning_effort: e.reasoning_effort,
+              },
             ],
           })),
         onStageResult: (e) =>
           patchLast((last) => ({
             ...last,
             trace: (last.trace ?? []).map((step) =>
-              step.key === e.stage ? { ...step, result: e.result, done: true } : step,
+              step.key === e.stage
+                ? {
+                    ...step,
+                    result: e.result,
+                    done: true,
+                    provider: e.provider ?? step.provider,
+                    model: e.model ?? step.model,
+                    tier: e.tier ?? step.tier,
+                    reasoning_effort: e.reasoning_effort ?? step.reasoning_effort,
+                  }
+                : step,
             ),
           })),
         onCitations: (c) => {
