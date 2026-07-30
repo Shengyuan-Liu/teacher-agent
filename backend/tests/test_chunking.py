@@ -83,6 +83,21 @@ def test_empty_input():
     assert chunk_document("   \n  ") == []
 
 
+def test_pdf_page_markers_are_preserved_on_parent_chunks():
+    text = """<!-- teacher-agent-page:1 -->
+# Introduction
+First-page material.
+
+<!-- teacher-agent-page:3 -->
+# Theorem
+Third-page material.
+"""
+    parents = chunk_document(text)
+    assert [parent.page_start for parent in parents] == [1, 3]
+    assert [parent.page_end for parent in parents] == [1, 3]
+    assert "teacher-agent-page" not in _all_text(parents)
+
+
 def test_an_overlong_heading_is_trimmed_not_fatal():
     from app.rag.chunking import MAX_HEADING, MAX_HEADING_PATH
 

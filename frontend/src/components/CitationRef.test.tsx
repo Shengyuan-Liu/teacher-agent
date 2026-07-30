@@ -46,3 +46,22 @@ test('a marker with no matching citation stays a plain [n]', () => {
   expect(container.textContent).toBe('[5]')
   expect(container.querySelector('.cite-wrap')).toBeNull()
 })
+
+test('a PDF citation displays and opens its exact page', () => {
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  const pdfCitation = {
+    ...citation,
+    source_type: 'pdf' as const,
+    page_start: 12,
+  }
+  const rendered = render(<CitationRef n={2} citation={pdfCitation} />)
+  fireEvent.mouseEnter(rendered.container.querySelector('.cite-wrap')!)
+  expect(screen.getByText(/page 12/)).toBeTruthy()
+  fireEvent.click(rendered.getByTitle('Open source'))
+  expect(open).toHaveBeenCalledWith(
+    'https://example.com/notes#page=12',
+    '_blank',
+    'noopener,noreferrer',
+  )
+  open.mockRestore()
+})

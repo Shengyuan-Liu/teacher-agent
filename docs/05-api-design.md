@@ -156,19 +156,19 @@ GET    /workspaces/{id}/questions              题库列表（筛选 topic/type/
 GET    /questions/{question_id}                题目详情（含出处、解析）
 DELETE /questions/{question_id}
 
-POST   /workspaces/{id}/quiz-attempts          开始一次测验/练习 { question_ids[] or scope, mode }
-POST   /quiz-attempts/{attempt_id}/answers     提交单题作答
-POST   /quiz-attempts/{attempt_id}/submit      交卷，触发批改（客观题即时，主观题异步/同步 LLM 批改）
-GET    /quiz-attempts/{attempt_id}             结果详情（得分、逐题反馈）
+POST   /workspaces/{id}/assessments            创建正式测验（兼容 API；主要由 Chat Router 调用）
+POST   /workspaces/{id}/assessments/{id}/submit 交卷并触发批改
+GET    /workspaces/{id}/assessments/{id}       恢复测验或读取结果
 
-GET    /workspaces/{id}/review-queue           今日待复习错题（间隔重复）
+GET    /workspaces/{id}/reviews                今日待复习错题（间隔重复）
+POST   /workspaces/{id}/reviews/{id}/answer    在 Chat 卡片中提交复习答案
 ```
 
 ## 8. 系统讲解 / Lecture
 
 ```
-POST   /workspaces/{id}/explanations           生成系统讲解 { topic_id or scope }
-GET    /explanations/{explanation_id}          获取讲义内容（结构化 Markdown + 大纲）
+系统讲解不提供独立模块；通过 Chat stream 的 `explain` 意图返回 Markdown、引用与
+`knowledge_graph` 消息 artifact。
 
 POST   /workspaces/{id}/lectures               开始 Lecture 会话 { study_plan_stage_id? or topic_ids? }
 GET    /lectures/{lecture_id}/stream           SSE 流式讲课内容 + 互动问题事件

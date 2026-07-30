@@ -47,6 +47,7 @@ class Block:
 
 
 IMAGE_REF = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+PDF_PAGE = re.compile(r"<!-- teacher-agent-page:(\d+) -->")
 
 
 @dataclass
@@ -56,6 +57,8 @@ class ParentChunk:
     children: list[str] = field(default_factory=list)
     #: figure ids referenced in this chunk, in order of appearance
     image_ids: list[str] = field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
 
 
 def referenced_images(text: str) -> list[str]:
@@ -67,6 +70,19 @@ def referenced_images(text: str) -> list[str]:
 
 
 def chunk_document(text: str) -> list[ParentChunk]:
+    pages = _pdf_pages(text)
+    if pages:
+        parents: list[ParentChunk] = []
+        for page, content in pages:
+            for parent in _chunk_text(content):
+                parent.page_start = page
+                parent.page_end = page
+                parents.append(parent)
+        return parents
+    return _chunk_text(text)
+
+
+def _chunk_text(text: str) -> list[ParentChunk]:
     parents: list[ParentChunk] = []
     for heading_path, body in _sections(text):
         for content in _pack(_blocks(body), PARENT_TARGET):
@@ -75,6 +91,19 @@ def chunk_document(text: str) -> list[ParentChunk]:
             parent.image_ids = referenced_images(content)
             parents.append(parent)
     return parents
+
+
+def _pdf_pages(text: str) -> list[tuple[int, str]]:
+    matches = list(PDF_PAGE.finditer(text))
+    if not matches:
+        return []
+    pages: list[tuple[int, str]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        content = text[match.end() : end].strip()
+        if content:
+            pages.append((int(match.group(1)), content))
+    return pages
 
 
 def _sections(text: str) -> list[tuple[str | None, str]]:

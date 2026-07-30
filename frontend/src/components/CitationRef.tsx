@@ -38,13 +38,19 @@ export default function CitationRef({
   const openSource = async () => {
     const external = citation.source_url ?? citation.source_origin
     if (external) {
-      window.open(external, '_blank', 'noopener,noreferrer')
+      const target = citation.source_type === 'pdf' && citation.page_start
+        ? `${external}#page=${citation.page_start}`
+        : external
+      window.open(target, '_blank', 'noopener,noreferrer')
       return
     }
     if (!workspaceId || !citation.source_id) return
     const blob = await fetchSourceFile(workspaceId, citation.source_id)
     const url = URL.createObjectURL(blob)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const target = citation.source_type === 'pdf' && citation.page_start
+      ? `${url}#page=${citation.page_start}`
+      : url
+    window.open(target, '_blank', 'noopener,noreferrer')
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
@@ -64,7 +70,11 @@ export default function CitationRef({
           <span className="cite-pop-head">
             {citation.source_title}
             {citation.heading ? ` · ${citation.heading}` : ''}
-            {citation.source_position != null ? ` · section ${citation.source_position + 1}` : ''}
+            {citation.page_start
+              ? ` · page ${citation.page_start}${citation.page_end && citation.page_end !== citation.page_start ? `–${citation.page_end}` : ''}`
+              : citation.source_position != null
+                ? ` · section ${citation.source_position + 1}`
+                : ''}
           </span>
           <span className="cite-pop-body">
             {citation.excerpt}

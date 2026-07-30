@@ -159,6 +159,8 @@ async def _run(db, source: Source) -> None:
             heading_path=parent.heading_path,
             content=parent.content,
             images=[{"id": i, "path": images[i]} for i in parent.image_ids if i in images] or None,
+            page_start=parent.page_start,
+            page_end=parent.page_end,
         )
         db.add(row)
         await db.flush()

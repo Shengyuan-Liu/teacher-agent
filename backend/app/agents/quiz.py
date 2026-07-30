@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChunkParent, Source
 from app.rag.retriever import RetrievalConfig, retrieve
 from app.services import usage
+from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 
 SAMPLE_SECTIONS = 8
@@ -60,6 +61,7 @@ The array contains the numbers of supported questions. Be strict."""
 
 class QuizState(TypedDict):
     workspace_id: str
+    user_id: str | None
     count: int
     topic: str | None
     #: the learner's natural-language ask and the language to write in; set when
@@ -73,8 +75,14 @@ class QuizState(TypedDict):
 
 async def gather(state: QuizState) -> dict:
     workspace_id = uuid.UUID(state["workspace_id"])
-    if state["topic"]:
-        hits = await retrieve(workspace_id, state["topic"], RetrievalConfig(top_k=SAMPLE_SECTIONS))
+    focus = state["topic"]
+    if not focus and state.get("user_id"):
+        async with AsyncSessionLocal() as db:
+            weakest = await mastery_summary(db, workspace_id, uuid.UUID(state["user_id"]), limit=1)
+        if weakest:
+            focus = weakest[0].topic
+    if focus:
+        hits = await retrieve(workspace_id, focus, RetrievalConfig(top_k=SAMPLE_SECTIONS))
         sections = [
             {
                 "chunk_id": h.chunk_id,
@@ -86,6 +94,8 @@ async def gather(state: QuizState) -> dict:
                 "source_origin": h.source_origin,
                 "source_url": h.source_url,
                 "source_position": h.source_position,
+                "page_start": h.page_start,
+                "page_end": h.page_end,
             }
             for h in hits
         ]
@@ -196,6 +206,8 @@ def _clean_candidates(raw_questions: list[dict], sections: list[dict]) -> list[d
             "source_origin": section.get("source_origin"),
             "source_url": section.get("source_url"),
             "source_position": section.get("source_position"),
+            "page_start": section.get("page_start"),
+            "page_end": section.get("page_end"),
         }
         candidates.append(cleaned)
     return deduplicate_questions(candidates)
