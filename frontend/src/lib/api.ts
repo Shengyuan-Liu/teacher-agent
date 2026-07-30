@@ -166,6 +166,21 @@ export interface ChatMessage {
   created_at: string
 }
 
+export interface LectureSummary {
+  id: string
+  workspace_id: string
+  chat_session_id: string
+  plan_stage_id: string | null
+  title: string
+  scope: string
+  status: 'active' | 'waiting_check' | 'paused' | 'completed' | 'cancelled'
+  current_section_index: number
+  total_sections: number
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
 export type ChatIntent =
   | 'qa'
   | 'web'
@@ -175,6 +190,7 @@ export type ChatIntent =
   | 'progress'
   | 'plan'
   | 'explain'
+  | 'lecture'
 
 export type ChatArtifact = Record<string, unknown> & { type?: string }
 
@@ -390,6 +406,8 @@ export const api = {
     request<void>(`/chat/sessions/${sessionId}`, { method: 'DELETE' }),
   listMessages: (sessionId: string) =>
     request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`),
+  listLectures: (workspaceId: string) =>
+    request<LectureSummary[]>(`/workspaces/${workspaceId}/lectures`),
 
   listPlans: (workspaceId: string) => request<StudyPlan[]>(`/workspaces/${workspaceId}/plans`),
   updateStage: (planId: string, stageId: string, status: 'pending' | 'done') =>
@@ -549,12 +567,13 @@ export async function streamAnswer(
   handlers: StreamHandlers,
   webSearch = false,
   intent?: ChatIntent,
+  requestId?: string,
 ): Promise<void> {
   const open = () =>
     fetch(`${BASE_URL}/chat/sessions/${sessionId}/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ message, web_search: webSearch, intent }),
+      body: JSON.stringify({ message, web_search: webSearch, intent, request_id: requestId }),
     })
 
   let res = await open()

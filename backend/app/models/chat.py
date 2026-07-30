@@ -41,6 +41,9 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
+    client_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), unique=True, index=True
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     #: web pages a one-shot web answer leaned on (url/title/domain/fetched_at),

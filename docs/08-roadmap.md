@@ -64,11 +64,28 @@
 - [ ] 发布验收补充真实资料上的主观题评分一致性、讲解引用质量和移动端计时恢复。
 
 ## Phase 4 — Lecture 模式与体验打磨
-- Lecture Agent：分节讲课、节间检验提问、用户打断提问后恢复进度（LangGraph interrupt + checkpoint）
+- Lecture Agent：分节讲课、节间检验提问、用户打断提问后恢复进度（LangGraph + PostgreSQL durable checkpoint）
 - Lecture 会话的暂停/恢复（跨天继续听课）
-- 前端 Lecture 专属界面（进度条、章节导航、互动问答内嵌）
+- 与 Chat 平级的 Lecture 模块：课程列表、专属页面、进度条、章节导航、检验题和暂停/恢复控制；底层复用共享对话 runtime
 - 性能与体验打磨：流式延迟优化、摄取任务的进度细化、多语言（中英文）内容生成校验
 - **验收标准**：可以完整体验一次"讲一节 → 提问检验 → 用户打断问问题 → 回到讲课"的 Lecture 会话。
+
+当前状态（2026-07-30）：
+
+- [x] Router 增加 `lecture` 意图；开始、继续、暂停和结束都从 Chat stream 进入。
+- [x] Lecture LangGraph 基于计划、掌握度与 RAG 资料生成有引用的分节大纲、小节讲解和理解检验题。
+- [x] `LectureSession` 持久化大纲、当前节、待回答问题和小节历史，支持刷新、暂停和跨天恢复。
+- [x] 待回答输入使用 Fast 档区分“作答 / 插问”；插问委托 QA Agent 后保持原讲课位置。
+- [x] 检验题由 Smart 档评分并回流掌握度；参考答案不进入 artifact 或调用链。
+- [x] Chat 内进度卡片展示章节、当前状态和控制按钮，旧卡片不可再次操作。
+- [x] Workspace 增加与 Chats 平级的 Lectures 入口、历史列表和专属 Lecture Studio 路由。
+- [x] Lecture 列表/详情成为一等 API 资源，同时隐藏待答题参考答案。
+- [x] Lecture 全部结构化调用统一进行本地 JSON 修复、schema 校验和一次模型修复；评分真正失败时保留 checkpoint/Mastery，并持久化“重试评分”动作后正常结束 SSE。
+- [x] 路由初始 query 一次性消费，后端使用 `request_id` 幂等键，避免刷新/HMR 重复发起同一 Lecture。
+- [x] 自动化验收覆盖“讲解 → 作答 → 暂停 → 恢复 → 插问 → 回到检验 → 完成”。
+- [ ] 使用真实中英文教材验证大纲顺序、讲解引用质量、重启恢复和首段响应延迟。
+- [ ] 细化大文件摄取进度，并完成移动端 Lecture 卡片体验验收。
+- [ ] 设计并实现按小节版本化的 narration/audio/video 异步媒体生成流水线与播放器。
 
 ## Phase 5（远期，非承诺范围）
 - 多 LLM/Embedding 供应商的生产级切换与成本看板

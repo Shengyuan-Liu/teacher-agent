@@ -15,7 +15,9 @@ from langchain_core.messages import HumanMessage
 from app.services import usage
 from app.services.providers import IntelligenceTier, chat_model
 
-Intent = Literal["qa", "web", "quiz", "test", "review", "progress", "plan", "explain"]
+Intent = Literal[
+    "qa", "web", "quiz", "test", "review", "progress", "plan", "explain", "lecture"
+]
 INTENTS: tuple[Intent, ...] = (
     "qa",
     "web",
@@ -25,6 +27,7 @@ INTENTS: tuple[Intent, ...] = (
     "progress",
     "plan",
     "explain",
+    "lecture",
 )
 ROUTER_CONFIDENCE_THRESHOLD = 0.68
 WEB_REQUEST_PATTERNS = (
@@ -87,6 +90,7 @@ INTENT_OPTIONS: dict[Intent, dict[str, str]] = {
     "progress": {"label": "查看掌握度", "description": "总结当前学习进度和薄弱知识点"},
     "plan": {"label": "调整计划", "description": "创建或修改学习计划"},
     "explain": {"label": "详细讲解", "description": "系统讲解并展示知识关系"},
+    "lecture": {"label": "互动讲课", "description": "分节讲解、检验理解并保留进度"},
 }
 
 CLASSIFY_PROMPT = """{context}The user's latest message is:
@@ -94,7 +98,7 @@ CLASSIFY_PROMPT = """{context}The user's latest message is:
 
 Build the smallest agent plan that fulfils what the learner wants NOW. Return JSON only:
 {{"intent":"primary intent","confidence":0.0,
-  "tasks":[{{"agent":"qa|web|quiz|test|review|progress|plan|explain",
+  "tasks":[{{"agent":"qa|web|quiz|test|review|progress|plan|explain|lecture",
              "query":"standalone subtask for that agent"}}],
   "alternatives":["..."],"reason":"brief reason"}}
 
@@ -105,6 +109,8 @@ Build the smallest agent plan that fulfils what the learner wants NOW. Return JS
 - progress: inspect mastery, learning progress, strengths, or weak topics.
 - plan: create, continue, or change a study plan or schedule.
 - explain: a systematic, detailed, step-by-step lesson or knowledge map.
+- lecture: start, continue, pause or resume a multi-turn interactive lesson with
+  section-by-section teaching and understanding checks ("给我讲一节课", "继续讲课").
 - qa: a normal question answered from the learner's material.
 
 Use one task for a simple request. Use multiple tasks when the request explicitly
@@ -208,6 +214,7 @@ def clarification_options(
             "review": ("progress", "quiz"),
             "progress": ("review", "plan"),
             "plan": ("progress", "explain"),
+            "lecture": ("explain", "quiz"),
             "web": ("qa", "explain"),
         }
         candidates.extend(fallbacks.get(decision.intent or "qa", ("qa", "explain")))

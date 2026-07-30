@@ -170,10 +170,19 @@ POST   /workspaces/{id}/reviews/{id}/answer    在 Chat 卡片中提交复习答
 系统讲解不提供独立模块；通过 Chat stream 的 `explain` 意图返回 Markdown、引用与
 `knowledge_graph` 消息 artifact。
 
-POST   /workspaces/{id}/lectures               开始 Lecture 会话 { study_plan_stage_id? or topic_ids? }
-GET    /lectures/{lecture_id}/stream           SSE 流式讲课内容 + 互动问题事件
-POST   /lectures/{lecture_id}/respond          用户回答/打断提问 { message }
-POST   /lectures/{lecture_id}/control          控制指令 { action: "next"|"repeat"|"pause"|"resume" }
+Lecture 是独立产品模块，但互动执行复用统一 conversation stream：
+POST   /chat/sessions/{session_id}/stream
+
+开始/继续/暂停可显式传 `intent="lecture"`；Lecture 处于 `waiting_check` 时，下一条普通
+Chat 消息自动恢复该 checkpoint。服务端返回 `lecture` artifact，包含大纲进度、状态、
+待回答问题和可用控制，不返回参考答案。请求体携带客户端生成的 `request_id`；重复 ID
+只重放已完成结果或返回“处理中”，绝不再次运行 Router/Lecture Agent。
+
+GET    /workspaces/{id}/lectures                 Lecture 历史列表
+GET    /workspaces/{id}/lectures/{lecture_id}    Lecture 详情与可见 checkpoint
+
+未来媒体接口挂在 Lecture 资源下，例如 `/lectures/{id}/media`；媒体生成走异步任务，文本
+Lecture 的开始、插问、暂停和恢复不依赖音视频任务完成。
 ```
 
 ## 9. 进度与掌握度

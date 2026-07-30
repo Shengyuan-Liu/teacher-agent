@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import Chat from './pages/Chat'
+import Lecture from './pages/Lecture'
 import Login from './pages/Login'
 import Workspace from './pages/Workspace'
 import Workspaces from './pages/Workspaces'
@@ -31,6 +32,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/" element={<Workspaces />} />
             <Route path="/w/:id" element={<Workspace />} />
             <Route path="/w/:id/c/:sid" element={<Chat />} />
+            <Route path="/w/:id/l/:sid" element={<Lecture />} />
           </Route>
         </Routes>
       </BrowserRouter>
