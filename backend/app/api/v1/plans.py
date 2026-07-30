@@ -87,8 +87,9 @@ async def delete_plan(
 async def generate_quiz(
     body: QuizCreate,
     workspace: Workspace = Depends(get_owned_workspace),
+    user: User = Depends(get_current_user),
 ) -> EventSourceResponse:
-    return EventSourceResponse(stream_quiz(workspace.id, body.count, body.topic))
+    return EventSourceResponse(stream_quiz(workspace.id, user.id, body.count, body.topic))
 
 
 @router.get("/workspaces/{workspace_id}/questions", response_model=list[QuestionResponse])

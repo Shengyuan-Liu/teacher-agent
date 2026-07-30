@@ -56,5 +56,9 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     #: agent steps that produced this reply, for the collapsible call chain
     trace: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    #: an optional interactive result rendered inside the conversation
+    artifacts: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")

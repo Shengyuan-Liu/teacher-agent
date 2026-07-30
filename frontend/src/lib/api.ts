@@ -160,8 +160,21 @@ export interface ChatMessage {
   used_web_search: boolean
   usage: Usage | null
   trace: TraceRecord[] | null
+  artifacts: ChatArtifact
   created_at: string
 }
+
+export type ChatIntent =
+  | 'qa'
+  | 'web'
+  | 'quiz'
+  | 'test'
+  | 'review'
+  | 'progress'
+  | 'plan'
+  | 'explain'
+
+export type ChatArtifact = Record<string, unknown> & { type?: string }
 
 export interface Capabilities {
   web_search: boolean
@@ -234,6 +247,73 @@ export interface Question {
   explanation: string
   source: { chunk_id: string; title: string; heading: string | null } | null
   created_at: string
+}
+
+export interface AssessmentQuestion {
+  id: string
+  position: number
+  points: number
+  type: Question['type']
+  difficulty: string
+  stem: string
+  options: string[] | null
+  source: Question['source']
+  response?: unknown
+  score_fraction?: number | null
+  correct?: boolean | null
+  feedback?: string | null
+  grader?: string | null
+  grader_model?: string | null
+  answer?: string | string[] | null
+  explanation?: string | null
+}
+
+export interface Assessment {
+  id: string
+  title: string
+  status: 'in_progress' | 'submitted' | 'timed_out'
+  time_limit_minutes: number
+  started_at: string
+  submitted_at: string | null
+  score: number | null
+  max_score: number
+  created_at: string
+  questions: AssessmentQuestion[]
+}
+
+export type AssessmentSummary = Omit<Assessment, 'questions'>
+
+export interface ReviewItem {
+  id: string
+  topic: string
+  due_at: string
+  interval_days: number
+  repetitions: number
+  last_correct: boolean | null
+  question: Omit<AssessmentQuestion, 'id' | 'position' | 'points'>
+}
+
+export interface ReviewResult {
+  item: ReviewItem
+  score_fraction: number
+  correct: boolean
+  feedback: string
+  grader: string
+  grader_model: string | null
+}
+
+export interface TopicMastery {
+  topic: string
+  score: number
+  attempts: number
+  correct_count: number
+  last_evidence: number
+  updated_at: string
+}
+
+export interface KnowledgeGraph {
+  nodes: { id: string; title: string; mastery: number | null }[]
+  edges: { from: string; to: string }[]
 }
 
 export interface ChatSession {
@@ -319,6 +399,33 @@ export const api = {
   deleteQuestion: (workspaceId: string, questionId: string) =>
     request<void>(`/workspaces/${workspaceId}/questions/${questionId}`, { method: 'DELETE' }),
 
+  createAssessment: (
+    workspaceId: string,
+    body: { title: string; count: number; time_limit_minutes: number; topic?: string | null },
+  ) => json<Assessment>(`/workspaces/${workspaceId}/assessments`, 'POST', body),
+  listAssessments: (workspaceId: string) =>
+    request<AssessmentSummary[]>(`/workspaces/${workspaceId}/assessments`),
+  getAssessment: (workspaceId: string, assessmentId: string) =>
+    request<Assessment>(`/workspaces/${workspaceId}/assessments/${assessmentId}`),
+  submitAssessment: (
+    workspaceId: string,
+    assessmentId: string,
+    answers: Record<string, unknown>,
+  ) =>
+    json<Assessment>(
+      `/workspaces/${workspaceId}/assessments/${assessmentId}/submit`,
+      'POST',
+      { answers },
+    ),
+  listReviews: (workspaceId: string, dueOnly = true) =>
+    request<ReviewItem[]>(`/workspaces/${workspaceId}/reviews?due_only=${dueOnly}`),
+  answerReview: (workspaceId: string, reviewId: string, response: unknown) =>
+    json<ReviewResult>(`/workspaces/${workspaceId}/reviews/${reviewId}/answer`, 'POST', {
+      response,
+    }),
+  listMastery: (workspaceId: string) =>
+    request<TopicMastery[]>(`/workspaces/${workspaceId}/mastery`),
+
   capabilities: () => request<Capabilities>('/capabilities'),
   webSearch: (workspaceId: string, body: { query?: string; from_question?: string }) =>
     json<WebSearchResult>(`/workspaces/${workspaceId}/web-search`, 'POST', body),
@@ -370,13 +477,14 @@ export interface StreamHandlers extends AgentStreamHandlers {
   onToken: (delta: string) => void
   onWebCitation: (citation: WebCitation) => void
   onWebSearchSuggested: (suggestion: WebSearchSuggestion) => void
+  onArtifact?: (artifact: ChatArtifact) => void
 }
 
 type DispatchHandlers = AgentStreamHandlers &
   Partial<
     Pick<
       StreamHandlers,
-      'onCitations' | 'onToken' | 'onWebCitation' | 'onWebSearchSuggested'
+      'onCitations' | 'onToken' | 'onWebCitation' | 'onWebSearchSuggested' | 'onArtifact'
     >
   >
 
@@ -392,6 +500,7 @@ export function dispatchStreamEvent(
   else if (event === 'token') handlers.onToken?.(payload.delta)
   else if (event === 'web_citation') handlers.onWebCitation?.(payload)
   else if (event === 'web_search_suggested') handlers.onWebSearchSuggested?.(payload)
+  else if (event === 'artifact') handlers.onArtifact?.(payload)
   else if (event === 'usage') handlers.onUsage(payload)
   else if (event === 'done') handlers.onDone(payload)
   else if (event === 'error') handlers.onError(payload.message)
@@ -437,12 +546,13 @@ export async function streamAnswer(
   message: string,
   handlers: StreamHandlers,
   webSearch = false,
+  intent?: ChatIntent,
 ): Promise<void> {
   const open = () =>
     fetch(`${BASE_URL}/chat/sessions/${sessionId}/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ message, web_search: webSearch }),
+      body: JSON.stringify({ message, web_search: webSearch, intent }),
     })
 
   let res = await open()

@@ -156,11 +156,36 @@ async def test_router_detects_quiz(monkeypatch):
     assert await router.classify_intent("帮我出几道题考考我") == "quiz"
 
 
+async def test_router_detects_structured_explanation(monkeypatch):
+    from app.agents import router
+
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("explain"))
+    assert await router.classify_intent("系统讲解一下马尔可夫链并画知识图谱") == "explain"
+
+
 async def test_router_detects_plan(monkeypatch):
     from app.agents import router
 
     monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat("plan"))
     assert await router.classify_intent("帮我制定一个学习计划") == "plan"
+
+
+async def test_router_returns_clarification_for_ambiguous_request(monkeypatch):
+    from app.agents import router
+
+    reply = (
+        '{"intent":"quiz","confidence":0.43,"alternatives":["test","explain"],'
+        '"reason":"考我 could mean practice or a formal test"}'
+    )
+    monkeypatch.setattr(router, "chat_model", lambda *_: _RouterChat(reply))
+    decision = await router.route_intent("考考我然后详细讲讲")
+
+    assert decision.needs_clarification is True
+    assert decision.intent == "quiz"
+    assert decision.alternatives == ("test", "explain")
+    assert [item["intent"] for item in router.clarification_options(
+        decision, web_search_enabled=False
+    )] == ["quiz", "test", "explain"]
 
 
 def test_provider_without_key_raises(monkeypatch):

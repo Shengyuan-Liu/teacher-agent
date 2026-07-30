@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.agents.router import Intent
+
 
 class ChatSessionResponse(BaseModel):
     id: uuid.UUID
@@ -23,6 +25,7 @@ class MessageResponse(BaseModel):
     used_web_search: bool
     usage: dict[str, Any] | None
     trace: list[dict[str, Any]] | None
+    artifacts: dict[str, Any]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -33,3 +36,5 @@ class AskRequest(BaseModel):
     #: only True on an explicit user action; the API gates it on the deployment
     #: flag and never turns it on itself
     web_search: bool = False
+    #: set only when the learner clicks a router clarification choice
+    intent: Intent | None = None

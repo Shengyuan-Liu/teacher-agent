@@ -1,0 +1,209 @@
+import uuid
+
+import pytest
+from httpx import AsyncClient
+
+from app.agents.explanation import build_knowledge_graph
+from app.agents.router import IntentDecision
+from app.core.database import AsyncSessionLocal
+from app.models import PlanStage, Question, StudyPlan, Workspace
+from app.services.assessment import grade_objective, parse_short_grade
+from app.services.mastery import next_review_schedule
+
+
+class TestAssessmentGrading:
+    def test_single_and_fill_are_normalised(self):
+        single = {"type": "single", "answer": "Identity", "explanation": "Because."}
+        fill = {"type": "fill", "answer": "Markov chain", "explanation": "Memoryless."}
+        assert grade_objective(single, " identity ").correct
+        assert grade_objective(fill, "MARKOV   CHAIN").correct
+
+    def test_multi_requires_the_exact_set_not_the_order(self):
+        snapshot = {
+            "type": "multi",
+            "answer": ["Associative", "Identity"],
+            "explanation": "Both properties are required.",
+        }
+        assert grade_objective(snapshot, ["identity", "associative"]).correct
+        assert not grade_objective(snapshot, ["identity"]).correct
+
+    def test_short_grade_parser_clamps_and_fails_closed(self):
+        assert parse_short_grade('{"score": 1.7, "feedback": "good"}') == (1.0, "good")
+        score, feedback = parse_short_grade("not json")
+        assert score == 0.0
+        assert "invalid" in feedback
+
+
+class TestReviewScheduling:
+    def test_correct_reviews_expand_and_a_miss_resets(self):
+        first = next_review_schedule(0, 0, 2.5, True)
+        second = next_review_schedule(*first, True)
+        third = next_review_schedule(*second, True)
+        assert first[:2] == (1, 1)
+        assert second[:2] == (2, 6)
+        assert third[0] == 3 and third[1] > 6
+        assert next_review_schedule(*third, False)[0:2] == (0, 1)
+
+
+def test_knowledge_graph_keeps_dependencies_and_mastery():
+    graph = build_knowledge_graph(
+        {
+            "topics": [
+                {"id": "t1", "title": "Basics", "depends_on": []},
+                {"id": "t2", "title": "Advanced", "depends_on": ["t1"]},
+            ]
+        },
+        [{"topic": "Basics", "score": 72.0}],
+    )
+    assert graph["edges"] == [{"from": "t1", "to": "t2"}]
+    assert graph["nodes"][0]["mastery"] == 72.0
+
+
+@pytest.mark.asyncio
+async def test_formal_test_updates_reviews_and_mastery(auth_client: AsyncClient):
+    workspace = (await auth_client.post("/workspaces", json={"name": "Phase 3"})).json()
+    workspace_id = uuid.UUID(workspace["id"])
+    async with AsyncSessionLocal() as db:
+        workspace_row = await db.get(Workspace, workspace_id)
+        plan = StudyPlan(
+            workspace_id=workspace_id,
+            user_id=workspace_row.owner_id,
+            goal="Learn probability",
+            daily_minutes=45,
+            stages=[],
+        )
+        db.add(plan)
+        await db.flush()
+        plan.stages.append(
+            PlanStage(
+                plan_id=plan.id,
+                position=0,
+                title="Foundations",
+                description="Read the foundations.",
+                topics=["Monoids", "Markov chains"],
+                activities=["read"],
+                estimated_minutes=60,
+                status="pending",
+            )
+        )
+        db.add_all(
+            [
+                Question(
+                    workspace_id=workspace_id,
+                    type="single",
+                    difficulty="easy",
+                    stem="Which property supplies a neutral element?",
+                    options=["Identity", "Closure", "Inverse"],
+                    answer="Identity",
+                    explanation="The identity is the neutral element.",
+                    source={"title": "Algebra", "heading": "Monoids"},
+                ),
+                Question(
+                    workspace_id=workspace_id,
+                    type="fill",
+                    difficulty="medium",
+                    stem="A process with the memoryless state property is a ____.",
+                    options=None,
+                    answer="Markov chain",
+                    explanation="The Markov property makes the current state sufficient.",
+                    source={"title": "Probability", "heading": "Markov chains"},
+                ),
+            ]
+        )
+        await db.commit()
+
+    created = await auth_client.post(
+        f"/workspaces/{workspace['id']}/assessments",
+        json={"title": "Checkpoint", "count": 2, "time_limit_minutes": 10},
+    )
+    assert created.status_code == 201
+    assessment = created.json()
+    assert assessment["status"] == "in_progress"
+    assert all("answer" not in question for question in assessment["questions"])
+
+    answers = {}
+    for question in assessment["questions"]:
+        answers[question["id"]] = "Identity" if question["type"] == "single" else "Poisson process"
+    submitted = await auth_client.post(
+        f"/workspaces/{workspace['id']}/assessments/{assessment['id']}/submit",
+        json={"answers": answers},
+    )
+    assert submitted.status_code == 200
+    result = submitted.json()
+    assert result["status"] == "submitted"
+    assert result["score"] == 1.0
+    assert all("answer" in question for question in result["questions"])
+
+    mastery = (await auth_client.get(f"/workspaces/{workspace['id']}/mastery")).json()
+    assert {item["topic"] for item in mastery} == {"Monoids", "Markov chains"}
+
+    plans = (await auth_client.get(f"/workspaces/{workspace['id']}/plans")).json()
+    assert plans[0]["stages"][0]["title"].startswith("Targeted review: Markov chains")
+
+    reviews = (await auth_client.get(f"/workspaces/{workspace['id']}/reviews")).json()
+    assert len(reviews) == 1
+    assert "answer" not in reviews[0]["question"]
+    review = await auth_client.post(
+        f"/workspaces/{workspace['id']}/reviews/{reviews[0]['id']}/answer",
+        json={"response": "Markov chain"},
+    )
+    assert review.status_code == 200
+    assert review.json()["correct"] is True
+    assert review.json()["item"]["interval_days"] == 1
+    assert (await auth_client.get(f"/workspaces/{workspace['id']}/reviews")).json() == []
+
+    await auth_client.delete(f"/workspaces/{workspace['id']}")
+
+
+@pytest.mark.asyncio
+async def test_chat_router_asks_before_ambiguous_action(
+    auth_client: AsyncClient, monkeypatch
+):
+    from app.services import chat_stream
+
+    async def ambiguous(*_args, **_kwargs):
+        return IntentDecision("quiz", 0.42, ("test", "explain"), "multiple plausible actions")
+
+    monkeypatch.setattr(chat_stream, "route_intent", ambiguous)
+    workspace = (await auth_client.post("/workspaces", json={"name": "Clarify"})).json()
+    session = (
+        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
+    ).json()
+    response = await auth_client.post(
+        f"/chat/sessions/{session['id']}/stream", json={"message": "考考我并详细讲讲"}
+    )
+
+    assert response.status_code == 200
+    assert '"type": "clarification"' in response.text
+    history = (await auth_client.get(f"/chat/sessions/{session['id']}/messages")).json()
+    assert history[-1]["artifacts"]["type"] == "clarification"
+    assert [item["intent"] for item in history[-1]["artifacts"]["options"]] == [
+        "quiz",
+        "test",
+        "explain",
+    ]
+    await auth_client.delete(f"/workspaces/{workspace['id']}")
+
+
+@pytest.mark.asyncio
+async def test_chat_choice_bypasses_router_model(auth_client: AsyncClient, monkeypatch):
+    from app.services import chat_stream
+
+    async def must_not_route(*_args, **_kwargs):
+        raise AssertionError("explicit chat choice should bypass the router model")
+
+    monkeypatch.setattr(chat_stream, "route_intent", must_not_route)
+    workspace = (await auth_client.post("/workspaces", json={"name": "Choice"})).json()
+    session = (
+        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
+    ).json()
+    response = await auth_client.post(
+        f"/chat/sessions/{session['id']}/stream",
+        json={"message": "查看我的学习进度", "intent": "progress"},
+    )
+
+    assert response.status_code == 200
+    assert '"type": "mastery"' in response.text
+    history = (await auth_client.get(f"/chat/sessions/{session['id']}/messages")).json()
+    assert history[-1]["artifacts"] == {"type": "mastery", "items": []}
+    await auth_client.delete(f"/workspaces/{workspace['id']}")

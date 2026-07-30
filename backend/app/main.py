@@ -4,7 +4,17 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, chat, health, images, plans, sources, web_search, workspaces
+from app.api.v1 import (
+    assessments,
+    auth,
+    chat,
+    health,
+    images,
+    plans,
+    sources,
+    web_search,
+    workspaces,
+)
 from app.core.config import settings
 from app.core.database import engine
 from app.core.redis_client import close_redis
@@ -47,6 +57,7 @@ for router in (
     images.router,
     chat.router,
     plans.router,
+    assessments.router,
     web_search.router,
 ):
     app.include_router(router, prefix=settings.api_v1_prefix)

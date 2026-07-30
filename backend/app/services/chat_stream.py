@@ -2,22 +2,37 @@ import json
 import re
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.agents import language
+from app.agents.explanation import explanation_graph
 from app.agents.planner import revise_plan
 from app.agents.qa import qa_graph
 from app.agents.quiz import quiz_graph
-from app.agents.router import classify_intent
+from app.agents.router import Intent, clarification_options, route_intent
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models import ChatSession, Message, PlanStage, StudyPlan
+from app.models import (
+    ChatSession,
+    Message,
+    PlanStage,
+    Question,
+    ReviewItem,
+    StudyPlan,
+    TopicMastery,
+)
 from app.rag.retriever import RetrievedChunk
 from app.services import usage
-from app.services.agent_runs import QUIZ_STEPS
+from app.services.agent_runs import (
+    EXPLANATION_MODEL_TIERS,
+    EXPLANATION_STEPS,
+    QUIZ_STEPS,
+)
+from app.services.assessment import create_assessment_from_bank
 from app.services.providers import IntelligenceTier, model_trace
 from app.services.rate_limit import over_rate_limit
 from app.services.trace import trace_value
@@ -98,6 +113,27 @@ def _render_quiz(questions: list[dict]) -> str:
     return "\n".join(lines)
 
 
+async def _persist_questions(workspace_id: uuid.UUID, questions: list[dict]) -> list[str]:
+    ids: list[str] = []
+    async with AsyncSessionLocal() as db:
+        for payload in questions:
+            question = Question(
+                workspace_id=workspace_id,
+                type=payload["type"],
+                difficulty=payload["difficulty"],
+                stem=payload["stem"],
+                options=payload.get("options"),
+                answer=payload["answer"],
+                explanation=payload["explanation"],
+                source=payload.get("source"),
+            )
+            db.add(question)
+            await db.flush()
+            ids.append(str(question.id))
+        await db.commit()
+    return ids
+
+
 PLAN_CHAT_STEPS = {
     "load": "Loading your plan and outline",
     "revise": "Revising the plan",
@@ -139,7 +175,7 @@ def _render_plan(stages: list[dict], done_titles: set[str]) -> str:
         acts = ", ".join(stage.get("activities") or [])
         if topics or acts:
             lines.append(f"  _{topics}{(' — ' + acts) if acts else ''}_")
-    lines += ["", "_Tick items off in the Plan tab, or ask me to adjust this._"]
+    lines += ["", "_你可以继续在聊天里告诉我完成了哪一项，或要求调整计划。_"]
     return "\n".join(lines)
 
 
@@ -172,6 +208,7 @@ async def _run_quiz(
     the shared trace protocol so the call chain looks like any other run."""
     quiz_state = {
         "workspace_id": str(session.workspace_id),
+        "user_id": str(session.user_id),
         "count": 5,
         "topic": question,
         "request": question,
@@ -207,9 +244,18 @@ async def _run_quiz(
         return
 
     citations = _quiz_citations(questions, sections)
-    content = _render_quiz(questions)
+    question_ids = await _persist_questions(session.workspace_id, questions)
+    artifact = {
+        "type": "practice_quiz",
+        "questions": [
+            {**payload, "id": question_id}
+            for payload, question_id in zip(questions, question_ids, strict=True)
+        ],
+    }
+    content = f"我准备了 {len(questions)} 道随堂练习。请在下面逐题作答并查看解析。"
     yield {"event": "token", "data": json.dumps({"delta": content})}
     yield {"event": "citations", "data": json.dumps(citations)}
+    yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -222,6 +268,190 @@ async def _run_quiz(
             used_web_search=False,
             usage=spent,
             trace=trace,
+            artifacts=artifact,
+        )
+        db.add(message)
+        await db.commit()
+        yield {
+            "event": "done",
+            "data": json.dumps({"message_id": str(message.id), "grounded": True}),
+        }
+
+
+def _test_parameters(request: str) -> tuple[int, int]:
+    count_match = re.search(r"(\d+)\s*(?:道|题|questions?)", request, re.I)
+    time_match = re.search(r"(\d+)\s*(?:分钟|分|minutes?|mins?)", request, re.I)
+    count = max(1, min(20, int(count_match.group(1)))) if count_match else 5
+    minutes = max(1, min(120, int(time_match.group(1)))) if time_match else max(10, count * 2)
+    return count, minutes
+
+
+async def _run_test(
+    session: ChatSession,
+    user_id: uuid.UUID,
+    question: str,
+    stage,
+    stage_result,
+    trace: list[dict],
+    turn,
+) -> AsyncGenerator[dict, None]:
+    """Prepare a timed assessment and return it as an inline chat card."""
+    count, minutes = _test_parameters(question)
+    quiz_state = {
+        "workspace_id": str(session.workspace_id),
+        "user_id": str(user_id),
+        "count": count,
+        "topic": question,
+        "request": question,
+        "language": language.instruction(question),
+        "sections": [],
+        "raw": [],
+        "questions": [],
+    }
+    order = list(QUIZ_STEPS)
+    yield stage(order[0], "Preparing assessment material", tier=QUIZ_MODEL_TIERS.get(order[0]))
+    questions: list[dict] = []
+    try:
+        async for update in quiz_graph.astream(quiz_state, stream_mode="updates"):
+            for node, payload in update.items():
+                if node not in QUIZ_STEPS:
+                    continue
+                if node == "validate":
+                    questions = payload["questions"]
+                yield stage_result(
+                    node, QUIZ_STEPS[node], payload, tier=QUIZ_MODEL_TIERS.get(node)
+                )
+                following = order[order.index(node) + 1 :]
+                if following:
+                    yield stage(
+                        following[0],
+                        QUIZ_STEPS[following[0]],
+                        tier=QUIZ_MODEL_TIERS.get(following[0]),
+                    )
+        await _persist_questions(session.workspace_id, questions)
+        yield stage("create_assessment", "Creating timed assessment")
+        async with AsyncSessionLocal() as db:
+            assessment = await create_assessment_from_bank(
+                db,
+                session.workspace_id,
+                user_id,
+                title=question[:300],
+                count=min(count, len(questions)),
+                time_limit_minutes=minutes,
+            )
+            await db.commit()
+            assessment_id = str(assessment.id)
+        yield stage_result(
+            "create_assessment",
+            "Creating timed assessment",
+            {"assessment_id": assessment_id, "questions": len(questions), "minutes": minutes},
+        )
+    except Exception as exc:
+        log.error("chat.test_failed", session_id=str(session.id), error=str(exc))
+        yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
+        return
+
+    artifact = {"type": "assessment", "assessment_id": assessment_id}
+    content = f"正式测试已准备好：{len(questions)} 道题，限时 {minutes} 分钟。完成后统一提交评分。"
+    yield {"event": "token", "data": json.dumps({"delta": content})}
+    yield {"event": "artifact", "data": json.dumps(artifact)}
+    spent = turn.as_payload()
+    yield {"event": "usage", "data": json.dumps(spent)}
+    async with AsyncSessionLocal() as db:
+        message = Message(
+            session_id=session.id,
+            role="assistant",
+            content=content,
+            citations=None,
+            web_citations=[],
+            used_web_search=False,
+            usage=spent,
+            trace=trace,
+            artifacts=artifact,
+        )
+        db.add(message)
+        await db.commit()
+        yield {
+            "event": "done",
+            "data": json.dumps({"message_id": str(message.id), "grounded": True}),
+        }
+
+
+async def _run_review_or_progress(
+    session: ChatSession,
+    user_id: uuid.UUID,
+    intent: Intent,
+    stage,
+    stage_result,
+    trace: list[dict],
+    turn,
+) -> AsyncGenerator[dict, None]:
+    label = "Loading due review questions" if intent == "review" else "Summarizing mastery"
+    yield stage("load", label)
+    async with AsyncSessionLocal() as db:
+        if intent == "review":
+            rows = list(
+                await db.scalars(
+                    select(ReviewItem)
+                    .where(
+                        ReviewItem.workspace_id == session.workspace_id,
+                        ReviewItem.user_id == user_id,
+                        ReviewItem.active.is_(True),
+                        ReviewItem.due_at <= datetime.now(UTC),
+                    )
+                    .order_by(ReviewItem.due_at)
+                )
+            )
+            artifact = {"type": "review", "review_ids": [str(row.id) for row in rows]}
+            result = {"due_count": len(rows), "topics": [row.topic for row in rows]}
+            content = (
+                f"你现在有 {len(rows)} 道到期错题。可以直接在下面开始复习。"
+                if rows
+                else "目前没有到期错题。你可以让我出一组随堂练习。"
+            )
+        else:
+            rows = list(
+                await db.scalars(
+                    select(TopicMastery)
+                    .where(
+                        TopicMastery.workspace_id == session.workspace_id,
+                        TopicMastery.user_id == user_id,
+                    )
+                    .order_by(TopicMastery.score, TopicMastery.topic)
+                )
+            )
+            items = [
+                {
+                    "topic": row.topic,
+                    "score": row.score,
+                    "attempts": row.attempts,
+                    "correct_count": row.correct_count,
+                }
+                for row in rows
+            ]
+            artifact = {"type": "mastery", "items": items}
+            result = {"topics": len(items), "weakest": items[:3]}
+            content = (
+                "这是你当前的知识点掌握情况，薄弱项已经排在前面。"
+                if items
+                else "还没有足够的作答记录。先做一次随堂练习或正式测试吧。"
+            )
+    yield stage_result("load", label, result)
+    yield {"event": "token", "data": json.dumps({"delta": content})}
+    yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    spent = turn.as_payload()
+    yield {"event": "usage", "data": json.dumps(spent)}
+    async with AsyncSessionLocal() as db:
+        message = Message(
+            session_id=session.id,
+            role="assistant",
+            content=content,
+            citations=None,
+            web_citations=[],
+            used_web_search=False,
+            usage=spent,
+            trace=trace,
+            artifacts=artifact,
         )
         db.add(message)
         await db.commit()
@@ -301,6 +531,7 @@ async def _run_plan(
             history,
             daily_minutes=previous_plan["daily_minutes"] if previous_plan else 60,
             deadline=previous_plan["deadline"] if previous_plan else None,
+            user_id=user_id,
         )
     except Exception as exc:
         log.error("chat.plan_failed", session_id=str(session.id), error=str(exc))
@@ -363,11 +594,88 @@ async def _run_plan(
         }
 
 
+async def _run_explanation(
+    session: ChatSession,
+    user_id: uuid.UUID,
+    question: str,
+    stage,
+    stage_result,
+    trace: list[dict],
+    turn,
+) -> AsyncGenerator[dict, None]:
+    state = {
+        "workspace_id": str(session.workspace_id),
+        "user_id": str(user_id),
+        "topic": question,
+        "outline": {},
+        "mastery": [],
+        "context": [],
+        "graph": {},
+        "explanation": "",
+    }
+    order = list(EXPLANATION_STEPS)
+    yield stage(order[0], EXPLANATION_STEPS[order[0]])
+    results: dict = {}
+    try:
+        async for update in explanation_graph.astream(state, stream_mode="updates"):
+            for node, payload in update.items():
+                if node not in EXPLANATION_STEPS:
+                    continue
+                results.update(payload or {})
+                tier = EXPLANATION_MODEL_TIERS.get(node)
+                yield stage_result(node, EXPLANATION_STEPS[node], payload, tier=tier)
+                following = order[order.index(node) + 1 :]
+                if following:
+                    next_node = following[0]
+                    yield stage(
+                        next_node,
+                        EXPLANATION_STEPS[next_node],
+                        tier=EXPLANATION_MODEL_TIERS.get(next_node),
+                    )
+    except Exception as exc:
+        log.error("chat.explanation_failed", session_id=str(session.id), error=str(exc))
+        yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
+        return
+
+    content = results["explanation"]
+    citations = _citations_payload(results["context"])
+    used = _cited_numbers(content)
+    citations = [citation for citation in citations if citation["n"] in used]
+    yield {"event": "token", "data": json.dumps({"delta": content})}
+    if citations:
+        yield {"event": "citations", "data": json.dumps(citations)}
+    artifact = {"type": "knowledge_graph", "graph": results["graph"]}
+    yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    spent = turn.as_payload()
+    yield {"event": "usage", "data": json.dumps(spent)}
+    async with AsyncSessionLocal() as db:
+        message = Message(
+            session_id=session.id,
+            role="assistant",
+            content=content,
+            citations=citations or None,
+            web_citations=[],
+            used_web_search=False,
+            usage=spent,
+            trace=trace,
+            artifacts=artifact,
+        )
+        db.add(message)
+        await db.commit()
+        yield {
+            "event": "done",
+            "data": json.dumps(
+                {"message_id": str(message.id), "grounded": True}
+            ),
+        }
+
+
 async def stream_answer(
     session_id: uuid.UUID,
     question: str,
     force_web: bool = False,
     user_id: uuid.UUID | None = None,
+    intent_override: Intent | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Run the QA graph and yield SSE events: citations, token, done.
 
@@ -458,22 +766,81 @@ async def stream_answer(
 
     # Show the router immediately while its model call is running. Web is still
     # selected only when the deployment allows it and this turn explicitly asks.
-    router_tier = None if force_web and settings.web_search_enabled else IntelligenceTier.FAST
+    explicitly_routed = force_web or intent_override is not None
+    router_tier = None if explicitly_routed else IntelligenceTier.FAST
     yield stage("router", "Understanding request", agent_name="router", tier=router_tier)
-    intent = "qa"
+    intent: Intent = "qa"
+    decision = None
     if force_web and settings.web_search_enabled:
         intent = "web"
+    elif intent_override is not None:
+        intent = intent_override
     else:
         # History lets the router route follow-ups ("后面没了，补全" after a plan)
         # to the right agent instead of defaulting each turn to qa.
-        classified = await classify_intent(question, history_pairs)
-        # web only when the deployment allows it; quiz and qa always available.
-        intent = classified if (classified != "web" or settings.web_search_enabled) else "qa"
+        decision = await route_intent(question, history_pairs)
+        if decision.needs_clarification:
+            options = clarification_options(
+                decision, web_search_enabled=settings.web_search_enabled
+            )
+            artifact = {
+                "type": "clarification",
+                "question": "你希望我怎么继续？",
+                "options": options,
+            }
+            yield stage_result(
+                "router",
+                "Understanding request",
+                {
+                    "intent": decision.intent,
+                    "confidence": decision.confidence,
+                    "alternatives": list(decision.alternatives),
+                    "reason": decision.reason,
+                    "action": "ask_user",
+                },
+                agent_name="router",
+                tier=router_tier,
+            )
+            content = artifact["question"]
+            yield {"event": "token", "data": json.dumps({"delta": content})}
+            yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+            spent = turn.as_payload()
+            yield {"event": "usage", "data": json.dumps(spent)}
+            async with AsyncSessionLocal() as db:
+                message = Message(
+                    session_id=session.id,
+                    role="assistant",
+                    content=content,
+                    citations=None,
+                    web_citations=[],
+                    used_web_search=False,
+                    usage=spent,
+                    trace=trace,
+                    artifacts=artifact,
+                )
+                db.add(message)
+                await db.commit()
+                yield {
+                    "event": "done",
+                    "data": json.dumps(
+                        {"message_id": str(message.id), "grounded": True, "clarification": True}
+                    ),
+                }
+            return
+        intent = decision.intent or "qa"
+    if intent == "web" and not settings.web_search_enabled:
+        intent = "qa"
     agent = intent
     state["intent"] = intent
-    _routed = {"web": "web search", "quiz": "a practice quiz", "plan": "a study plan"}.get(
-        intent, "your material"
-    )
+    _routed = {
+        "web": "web search",
+        "quiz": "a practice quiz",
+        "test": "a timed assessment",
+        "review": "due review questions",
+        "progress": "a mastery summary",
+        "plan": "a study plan",
+        "explain": "a structured explanation",
+    }.get(intent, "your material")
     yield stage_result(
         "router",
         "Understanding request",
@@ -481,6 +848,10 @@ async def stream_answer(
             "intent": intent,
             "routed_to": _routed,
             "forced_by_user_action": force_web,
+            "selected_by_user": intent_override is not None,
+            "confidence": decision.confidence if decision else 1.0,
+            "alternatives": list(decision.alternatives) if decision else [],
+            "reason": decision.reason if decision else "explicit user selection",
             "web_search_enabled": settings.web_search_enabled,
         },
         agent_name="router",
@@ -505,9 +876,30 @@ async def stream_answer(
             yield event
         return
 
+    if intent == "test" and user_id is not None:
+        async for event in _run_test(
+            session, user_id, question, stage, stage_result, trace, turn
+        ):
+            yield event
+        return
+
+    if intent in ("review", "progress") and user_id is not None:
+        async for event in _run_review_or_progress(
+            session, user_id, intent, stage, stage_result, trace, turn
+        ):
+            yield event
+        return
+
     if intent == "plan" and user_id is not None:
         async for event in _run_plan(
             session, user_id, question, history_pairs, stage, stage_result, trace, turn
+        ):
+            yield event
+        return
+
+    if intent == "explain" and user_id is not None:
+        async for event in _run_explanation(
+            session, user_id, question, stage, stage_result, trace, turn
         ):
             yield event
         return

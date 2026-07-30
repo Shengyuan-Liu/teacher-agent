@@ -133,8 +133,160 @@ button.ghost:hover {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   margin: 1.5rem 0 1rem;
+}
+
+/* Phase 3: formal assessments, review and mastery */
+
+.assessment-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 1.5rem;
+}
+
+.assessment-form h2,
+.assessment-head h2,
+.section-title h2 {
+  margin: 0;
+}
+
+.assessment-form label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.assessment-form input[type='number'] {
+  width: 5rem;
+}
+
+.assessment-head,
+.section-title,
+.mastery-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.test-timer,
+.score-pill {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: var(--bg-bubble);
+}
+
+.test-timer.urgent {
+  color: #d92d20;
+}
+
+.test-question textarea,
+.review-card textarea {
+  border-radius: 12px;
+  resize: vertical;
+  margin: 0.5rem 0;
+}
+
+.test-question.passed {
+  border-left: 3px solid #079455;
+}
+
+.test-question.failed {
+  border-left: 3px solid #d92d20;
+}
+
+.assessment-actions {
+  margin-top: 1rem;
+}
+
+.assessment-history {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.history-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 1rem;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.history-card small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+}
+
+.progress-grid {
+  display: grid;
+  gap: 2rem;
+}
+
+.mastery-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.mastery-row {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.mastery-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-bubble);
+}
+
+.mastery-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f79009, #079455);
+}
+
+.knowledge-map {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 1.5rem;
+}
+
+.knowledge-node {
+  border-left: 3px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  background: var(--bg-soft);
+}
+
+.knowledge-node > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.knowledge-node small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+}
+
+.explanation {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
 .tab {
@@ -857,4 +1009,52 @@ select {
 
 .cite-button:disabled {
   cursor: default;
+}
+
+/* Interactive learning results live in the conversation. */
+.chat-artifact {
+  margin-top: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+
+.clarification-options {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.clarification-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.clarification-options small {
+  color: var(--text-muted);
+}
+
+.knowledge-graph {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.knowledge-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.knowledge-edges {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-muted);
 }

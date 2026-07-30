@@ -5,12 +5,15 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import ActivityTrace, { type TraceStep } from '@/components/ActivityTrace'
+import ChatArtifact from '@/components/ChatArtifact'
 import CitationRef from '@/components/CitationRef'
 import UsageNote from '@/components/UsageNote'
 import {
   api,
   streamAnswer,
   type Citation,
+  type ChatArtifact as Artifact,
+  type ChatIntent,
   type Usage,
   type WebCitation,
   type WebSearchSuggestion,
@@ -29,6 +32,7 @@ interface Msg {
   usage?: Usage | null
   trace?: TraceStep[]
   streaming?: boolean
+  artifact?: Artifact
 }
 
 function CitationChips({
@@ -147,6 +151,7 @@ export default function Chat() {
             tier: t.tier,
             reasoning_effort: t.reasoning_effort,
           })),
+          artifact: m.artifacts,
         })),
       )
       if (initialQuestion) {
@@ -167,7 +172,7 @@ export default function Chat() {
   const patchLast = (patch: (last: Msg) => Msg) =>
     setMessages((m) => [...m.slice(0, -1), patch(m[m.length - 1])])
 
-  async function send(question: string, webSearch = false) {
+  async function send(question: string, webSearch = false, intent?: ChatIntent) {
     if (!question.trim() || streaming || !sessionId) return
     setError('')
     setStreaming(true)
@@ -232,6 +237,7 @@ export default function Chat() {
         },
         onWebSearchSuggested: (s) =>
           patchLast((last) => ({ ...last, suggestion: s })),
+        onArtifact: (artifact) => patchLast((last) => ({ ...last, artifact })),
         onUsage: (u) => patchLast((last) => ({ ...last, usage: u })),
         onDone: (payload) => {
           finished = true
@@ -252,6 +258,7 @@ export default function Chat() {
         },
         },
         webSearch,
+        intent,
       )
       if (!finished) {
         // Stream ended without a done event: connection dropped mid-answer.
@@ -289,6 +296,17 @@ export default function Chat() {
                 webCitations={m.webCitations}
                 workspaceId={workspaceId}
               />
+              {m.artifact?.type && workspaceId && (
+                <ChatArtifact
+                  artifact={m.artifact}
+                  workspaceId={workspaceId}
+                  disabled={streaming}
+                  onChooseIntent={(intent, label) => {
+                    const original = messages[i - 1]?.content ?? ''
+                    send(`按“${label}”继续处理这个请求：${original}`, intent === 'web', intent)
+                  }}
+                />
+              )}
               {m.streaming && <span className="cursor" />}
               {m.citations && m.citations.length > 0 && (
                 <CitationChips citations={m.citations} workspaceId={workspaceId} />

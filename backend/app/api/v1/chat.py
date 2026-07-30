@@ -85,4 +85,6 @@ async def ask(
     # The intent router (inside stream_answer) decides web vs local, gates it on
     # the deployment flag, and rate-limits it. body.web_search is the explicit
     # "search the web" suggestion click, which forces the web branch.
-    return EventSourceResponse(stream_answer(session.id, body.message, body.web_search, user.id))
+    return EventSourceResponse(
+        stream_answer(session.id, body.message, body.web_search, user.id, body.intent)
+    )

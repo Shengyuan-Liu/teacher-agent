@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import PlanPanel from '@/components/PlanPanel'
-import QuizPanel from '@/components/QuizPanel'
 import SourcePanel from '@/components/SourcePanel'
 import { api } from '@/lib/api'
 
@@ -47,7 +46,7 @@ function SessionList({ workspaceId }: { workspaceId: string }) {
 
 export default function Workspace() {
   const { id } = useParams<{ id: string }>()
-  const [tab, setTab] = useState<'chats' | 'plan' | 'quiz' | 'sources'>('chats')
+  const [tab, setTab] = useState<'chats' | 'plan' | 'sources'>('chats')
   const [question, setQuestion] = useState('')
   const navigate = useNavigate()
 
@@ -78,7 +77,6 @@ export default function Workspace() {
           [
             ['chats', 'Chats'],
             ['plan', 'Plan'],
-            ['quiz', 'Quiz'],
             ['sources', 'Sources'],
           ] as const
         ).map(([key, label]) => (
@@ -96,7 +94,6 @@ export default function Workspace() {
       <div className="shell-body">
         {tab === 'chats' && <SessionList workspaceId={id} />}
         {tab === 'plan' && <PlanPanel workspaceId={id} />}
-        {tab === 'quiz' && <QuizPanel workspaceId={id} />}
         {tab === 'sources' && <SourcePanel workspaceId={id} />}
       </div>
 

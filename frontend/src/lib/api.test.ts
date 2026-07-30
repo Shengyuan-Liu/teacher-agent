@@ -10,6 +10,7 @@ function handlers(): StreamHandlers {
     onToken: vi.fn(),
     onWebCitation: vi.fn(),
     onWebSearchSuggested: vi.fn(),
+    onArtifact: vi.fn(),
     onUsage: vi.fn(),
     onDone: vi.fn(),
     onError: vi.fn(),
@@ -33,5 +34,18 @@ describe('dispatchStreamEvent', () => {
     dispatchStreamEvent('done', JSON.stringify(payload), target)
 
     expect(target.onDone).toHaveBeenCalledWith(payload)
+  })
+
+  it('delivers interactive chat artifacts', () => {
+    const target = handlers()
+    const artifact = {
+      type: 'clarification',
+      question: 'How should I continue?',
+      options: [{ intent: 'quiz', label: 'Practice' }],
+    }
+
+    dispatchStreamEvent('artifact', JSON.stringify(artifact), target)
+
+    expect(target.onArtifact).toHaveBeenCalledWith(artifact)
   })
 })

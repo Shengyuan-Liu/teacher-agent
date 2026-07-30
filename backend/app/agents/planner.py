@@ -14,7 +14,9 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.outline import ensure_outline
+from app.core.database import AsyncSessionLocal
 from app.services import usage
+from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 
 DRAFT_PROMPT = """You are planning a course of self-study.
@@ -24,6 +26,8 @@ Topic outline of the material (with prerequisite ids):
 
 Learner's goal: {goal}
 Time available: {daily_minutes} minutes per day{deadline_line}
+Mastery evidence (lowest scores need more review):
+{mastery}
 
 Draft a staged study plan as JSON:
 {{"stages": [{{"title": "...", "description": "...", "topics": ["topic title", ...],
@@ -53,6 +57,9 @@ Topic outline of the material (with prerequisite ids):
 
 Current plan (empty if there is none yet):
 {current}
+
+Mastery evidence (lowest scores need more review):
+{mastery}
 
 {convo}The learner just said: {request}
 
@@ -90,12 +97,14 @@ async def revise_plan(
     history: list[tuple[str, str]] | None = None,
     daily_minutes: int = 60,
     deadline: date | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Create or edit a study plan from a natural-language request. `current` is
     the existing plan rendered for the prompt (empty when there is none); recent
     conversation lets follow-up edits resolve references to what was just said."""
     outline = await ensure_outline(workspace_id)
     topics = _topics_for_prompt(outline)
+    mastery = await _mastery_for_prompt(workspace_id, user_id)
     convo = ""
     if history:
         recent = "\n".join(f"{role}: {content[:300]}" for role, content in history[-4:])
@@ -104,7 +113,11 @@ async def revise_plan(
         [
             HumanMessage(
                 CHAT_PLAN_PROMPT.format(
-                    outline=topics, current=current or "(none)", convo=convo, request=request
+                    outline=topics,
+                    current=current or "(none)",
+                    mastery=mastery,
+                    convo=convo,
+                    request=request,
                 )
             )
         ]
@@ -115,16 +128,20 @@ async def revise_plan(
 
 class PlanState(TypedDict):
     workspace_id: str
+    user_id: str
     goal: str
     daily_minutes: int
     deadline: str | None
     outline: dict
+    mastery: str
     stages: list[dict]
 
 
 async def load_context(state: PlanState) -> dict:
-    outline = await ensure_outline(uuid.UUID(state["workspace_id"]))
-    return {"outline": outline}
+    workspace_id = uuid.UUID(state["workspace_id"])
+    outline = await ensure_outline(workspace_id)
+    mastery = await _mastery_for_prompt(workspace_id, uuid.UUID(state["user_id"]))
+    return {"outline": outline, "mastery": mastery}
 
 
 async def draft(state: PlanState) -> dict:
@@ -135,6 +152,7 @@ async def draft(state: PlanState) -> dict:
         goal=state["goal"],
         daily_minutes=state["daily_minutes"],
         deadline_line=deadline_line,
+        mastery=state["mastery"],
     )
     reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt)])
     usage.record_message("plan_draft", reply)
@@ -153,6 +171,18 @@ def _topics_for_prompt(outline: dict) -> str:
         {"source_order": index + 1, **topic} for index, topic in enumerate(outline["topics"])
     ]
     return json.dumps(ordered, ensure_ascii=False, indent=1)
+
+
+async def _mastery_for_prompt(workspace_id: uuid.UUID, user_id: uuid.UUID | None) -> str:
+    if user_id is None:
+        return "No assessment evidence yet."
+    async with AsyncSessionLocal() as db:
+        rows = await mastery_summary(db, workspace_id, user_id)
+    if not rows:
+        return "No assessment evidence yet."
+    return "\n".join(
+        f"- {row.topic}: {row.score:.0f}% over {row.attempts} attempt(s)" for row in rows
+    )
 
 
 def order_stages_by_outline(stages: list[dict], outline_topics: list[dict]) -> list[dict]:

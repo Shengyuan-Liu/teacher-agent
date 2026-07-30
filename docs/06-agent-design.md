@@ -14,7 +14,9 @@ flowchart LR
     User[用户请求] --> Router{Orchestrator\nRouter Node}
     Router -->|问答| QAGraph[QA/Tutor Subgraph]
     Router -->|生成/调整计划| PlanGraph[Planner Subgraph]
-    Router -->|出题/批改| QuizGraph[Quiz Subgraph]
+    Router -->|随堂练习/正式测试| QuizGraph[Quiz + Assessment Subgraph]
+    Router -->|错题复习/掌握度| MasteryFlow[Review/Mastery Flow]
+    Router -->|系统讲解| ExplainGraph[Explanation Subgraph]
     Router -->|开始/继续 Lecture| LectureGraph[Lecture Subgraph]
     Router -->|用户显式要求联网| SearchGraph[Search Subgraph]
 
@@ -23,15 +25,19 @@ flowchart LR
 
     QAGraph --> Tools1[(Retriever Tool)]
     QuizGraph --> Tools1
+    ExplainGraph --> Tools1
     LectureGraph --> Tools1
     PlanGraph --> Tools2[(Outline/Topic Tool)]
+    ExplainGraph --> Tools2
 
     QAGraph --> Mastery[(Mastery Update)]
     QuizGraph --> Mastery
+    ExplainGraph --> Mastery
     LectureGraph --> Mastery
 ```
 
-- **Orchestrator**：一个轻量路由节点，根据 API 层传入的"意图"（前端明确知道用户点的是"问答"还是"生成计划"，大多数情况下不需要模型再做意图识别）直接分发到子图；只有在 Lecture 会话中用户"打断提问"这种需要判断的场景，才需要一个小分类器（"这是对讲课内容的提问，还是控制指令如'下一节'"）。
+- **Orchestrator**：所有 Chat 请求先由 Fast 档小模型识别 `qa / web / quiz / test / review / progress / plan / explain` 意图，并返回置信度、候选意图与理由。低置信度时 Router 不执行任务，而是在 Chat 消息内给出可点击选项；用户选择后显式进入对应分支且不再调用 Router 模型。每个节点的输入输出、模型档位和实际模型都会写入调用链。
+- **单一交互入口**：问答、详细讲解、练习、计时测试、错题复习和掌握度查看都在 Chat 消息中完成；前端以持久化 `artifacts` 渲染交互卡片，不为每个 Agent 建立独立页面。
 - **子图（Subgraph）**：QA、Planner、Quiz、Lecture 各自是独立的 `StateGraph`，有各自的 State（TypedDict/Pydantic）、节点、边。子图之间通过共享的 Tools 和数据库访问层复用能力，而不是互相硬编码调用。
 
 ## 3. 共享工具（Tools）

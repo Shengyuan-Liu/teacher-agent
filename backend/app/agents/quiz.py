@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChunkParent, Source
 from app.rag.retriever import RetrievalConfig, retrieve
 from app.services import usage
+from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 
 SAMPLE_SECTIONS = 8
@@ -60,6 +61,7 @@ The array contains the numbers of supported questions. Be strict."""
 
 class QuizState(TypedDict):
     workspace_id: str
+    user_id: str | None
     count: int
     topic: str | None
     #: the learner's natural-language ask and the language to write in; set when
@@ -73,8 +75,14 @@ class QuizState(TypedDict):
 
 async def gather(state: QuizState) -> dict:
     workspace_id = uuid.UUID(state["workspace_id"])
-    if state["topic"]:
-        hits = await retrieve(workspace_id, state["topic"], RetrievalConfig(top_k=SAMPLE_SECTIONS))
+    focus = state["topic"]
+    if not focus and state.get("user_id"):
+        async with AsyncSessionLocal() as db:
+            weakest = await mastery_summary(db, workspace_id, uuid.UUID(state["user_id"]), limit=1)
+        if weakest:
+            focus = weakest[0].topic
+    if focus:
+        hits = await retrieve(workspace_id, focus, RetrievalConfig(top_k=SAMPLE_SECTIONS))
         sections = [
             {
                 "chunk_id": h.chunk_id,

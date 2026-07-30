@@ -31,12 +31,17 @@ QUIZ_STEPS = {
     "generate": "Writing questions",
     "validate": "Checking answers against the material",
 }
+EXPLANATION_STEPS = {
+    "load_context": "Collecting prerequisites, mastery and source passages",
+    "generate": "Writing a grounded structured lesson",
+}
 
 PLAN_MODEL_TIERS = {"draft": IntelligenceTier.SMART}
 QUIZ_MODEL_TIERS = {
     "generate": IntelligenceTier.SMART,
     "validate": IntelligenceTier.SMART,
 }
+EXPLANATION_MODEL_TIERS = {"generate": IntelligenceTier.SMART}
 
 
 def _event(name: str, payload: dict | list) -> dict:
@@ -94,10 +99,12 @@ async def stream_plan(
     turn = usage.start()
     state = {
         "workspace_id": str(workspace_id),
+        "user_id": str(user_id),
         "goal": goal,
         "daily_minutes": daily_minutes,
         "deadline": deadline.isoformat() if deadline else None,
         "outline": {},
+        "mastery": "",
         "stages": [],
     }
     results: dict = {}
@@ -131,11 +138,12 @@ async def stream_plan(
 
 
 async def stream_quiz(
-    workspace_id: uuid.UUID, count: int, topic: str | None
+    workspace_id: uuid.UUID, user_id: uuid.UUID, count: int, topic: str | None
 ) -> AsyncGenerator[dict, None]:
     turn = usage.start()
     state = {
         "workspace_id": str(workspace_id),
+        "user_id": str(user_id),
         "count": count,
         "topic": topic,
         "sections": [],
