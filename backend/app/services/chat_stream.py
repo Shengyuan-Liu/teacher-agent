@@ -8,10 +8,18 @@ from datetime import UTC, datetime
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.agents import language
 from app.agents.explanation import explanation_graph
+from app.agents.lecture import (
+    classify_lecture_input,
+    control_action,
+    grade_lecture_answer,
+    lecture_graph,
+    parse_input_decision,
+)
 from app.agents.planner import revise_plan
 from app.agents.qa import qa_graph
 from app.agents.qa import retrieve_node as collect_rag_context
@@ -29,6 +37,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import (
     ChatSession,
+    LectureSession,
     Message,
     PlanStage,
     Question,
@@ -44,6 +53,7 @@ from app.services.agent_runs import (
     QUIZ_STEPS,
 )
 from app.services.assessment import create_assessment_from_bank
+from app.services.mastery import record_mastery
 from app.services.providers import IntelligenceTier, chat_model, model_trace
 from app.services.rate_limit import over_rate_limit
 from app.services.trace import trace_value
@@ -347,9 +357,7 @@ async def _run_test(
                     continue
                 if node == "validate":
                     questions = payload["questions"]
-                yield stage_result(
-                    node, QUIZ_STEPS[node], payload, tier=QUIZ_MODEL_TIERS.get(node)
-                )
+                yield stage_result(node, QUIZ_STEPS[node], payload, tier=QUIZ_MODEL_TIERS.get(node))
                 following = order[order.index(node) + 1 :]
                 if following:
                     yield stage(
@@ -693,10 +701,639 @@ async def _run_explanation(
         await db.commit()
         yield {
             "event": "done",
-            "data": json.dumps(
-                {"message_id": str(message.id), "grounded": True}
-            ),
+            "data": json.dumps({"message_id": str(message.id), "grounded": True}),
         }
+
+
+LECTURE_STEPS = {
+    "load_context": "Collecting plan, mastery and source passages",
+    "outline": "Designing the lecture outline",
+    "section": "Teaching the current section and writing a check question",
+}
+LECTURE_MODEL_TIERS = {
+    "outline": IntelligenceTier.SMART,
+    "section": IntelligenceTier.SMART,
+}
+RESUMABLE_LECTURE_STATUSES = ("active", "waiting_check", "paused")
+
+
+async def _latest_lecture(
+    chat_session_id: uuid.UUID, statuses: tuple[str, ...] = RESUMABLE_LECTURE_STATUSES
+) -> LectureSession | None:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(LectureSession)
+            .where(
+                LectureSession.chat_session_id == chat_session_id,
+                LectureSession.status.in_(statuses),
+            )
+            .order_by(LectureSession.updated_at.desc(), LectureSession.created_at.desc())
+            .limit(1)
+        )
+
+
+def _lecture_artifact(lecture: LectureSession) -> dict:
+    total = len(lecture.outline)
+    current = min(lecture.current_section_index, max(total - 1, 0))
+    sections = []
+    for index, section in enumerate(lecture.outline):
+        if lecture.status == "completed" or index < lecture.current_section_index:
+            section_status = "done"
+        elif index == current:
+            section_status = "current"
+        else:
+            section_status = "upcoming"
+        sections.append(
+            {"index": index, "title": section.get("title", ""), "status": section_status}
+        )
+
+    actions: list[dict[str, str]] = []
+    if lecture.status == "active":
+        actions.append({"action": "continue", "label": "继续下一节"})
+    elif lecture.status == "paused":
+        actions.append({"action": "continue", "label": "恢复讲课"})
+    if lecture.status in ("active", "waiting_check"):
+        actions.append({"action": "pause", "label": "暂停"})
+    if lecture.status in ("active", "waiting_check", "paused"):
+        actions.append({"action": "stop", "label": "结束讲课"})
+
+    return {
+        "type": "lecture",
+        "lecture_id": str(lecture.id),
+        "title": lecture.title,
+        "status": lecture.status,
+        "current_section": min(lecture.current_section_index + 1, total) if total else 0,
+        "completed_sections": min(lecture.current_section_index, total),
+        "total_sections": total,
+        "sections": sections,
+        "check_question": (
+            (lecture.pending_check or {}).get("question")
+            if lecture.status in ("waiting_check", "paused")
+            else None
+        ),
+        "actions": actions,
+    }
+
+
+async def _save_lecture_message(
+    session_id: uuid.UUID,
+    content: str,
+    citations: list[dict] | None,
+    artifact: dict,
+    spent: dict,
+    trace: list[dict],
+) -> str:
+    async with AsyncSessionLocal() as db:
+        message = Message(
+            session_id=session_id,
+            role="assistant",
+            content=content,
+            citations=citations or None,
+            web_citations=[],
+            used_web_search=False,
+            usage=spent,
+            trace=trace,
+            artifacts=artifact,
+        )
+        db.add(message)
+        await db.commit()
+        return str(message.id)
+
+
+async def _static_lecture_events(
+    session_id: uuid.UUID,
+    content: str,
+    artifact: dict,
+    trace: list[dict],
+    turn,
+    citations: list[dict] | None = None,
+) -> list[dict]:
+    spent = turn.as_payload()
+    message_id = await _save_lecture_message(session_id, content, citations, artifact, spent, trace)
+    events = [{"event": "token", "data": json.dumps({"delta": content})}]
+    if citations:
+        events.append({"event": "citations", "data": json.dumps(citations)})
+    events.extend(
+        [
+            {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)},
+            {"event": "usage", "data": json.dumps(spent)},
+            {
+                "event": "done",
+                "data": json.dumps(
+                    {"message_id": message_id, "grounded": bool(citations), "lecture": True}
+                ),
+            },
+        ]
+    )
+    return events
+
+
+async def _run_lecture_interruption(
+    session: ChatSession,
+    lecture: LectureSession,
+    question: str,
+    history: list[tuple[str, str]],
+    stage,
+    stage_result,
+    trace: list[dict],
+    turn,
+) -> AsyncGenerator[dict, None]:
+    """Delegate an interruption to the existing grounded QA graph.
+
+    The Lecture row is intentionally left untouched, so the pending check and
+    exact section position are still there after the answer.
+    """
+    state = {
+        "question": question,
+        "history": history,
+        "workspace_id": str(session.workspace_id),
+        "context": [],
+        "grounded": False,
+        "answer": "",
+        "intent": "qa",
+        "web_query": "",
+        "web_results": [],
+        "web_citations": [],
+    }
+    prefix = "先回答你刚才插入的问题：\n\n"
+    suffix = "\n\n_讲课进度已保留；回答检验题后我会继续下一节。_"
+    yield {"event": "token", "data": json.dumps({"delta": prefix})}
+    yield stage("lecture_qa_retrieve", "Searching material for the interruption", "qa")
+    answer_parts: list[str] = []
+    citations: list[dict] = []
+    grounded = False
+    grade_tier: IntelligenceTier | None = None
+    try:
+        async for mode, payload in qa_graph.astream(state, stream_mode=["updates", "messages"]):
+            if mode == "messages":
+                chunk, metadata = payload
+                if metadata.get("langgraph_node") in ("generate", "decline") and chunk.text:
+                    answer_parts.append(chunk.text)
+                    yield {"event": "token", "data": json.dumps({"delta": chunk.text})}
+                continue
+            if "retrieve" in payload:
+                context = payload["retrieve"]["context"]
+                citations = _citations_payload(context)
+                yield stage_result(
+                    "lecture_qa_retrieve",
+                    "Searching material for the interruption",
+                    payload["retrieve"],
+                    "qa",
+                )
+                grade_tier = IntelligenceTier.FAST if context else None
+                yield stage("lecture_qa_grade", "Checking interruption coverage", "qa", grade_tier)
+            if "grade" in payload:
+                grounded = payload["grade"]["grounded"]
+                yield stage_result(
+                    "lecture_qa_grade",
+                    "Checking interruption coverage",
+                    payload["grade"],
+                    "qa",
+                    grade_tier,
+                )
+                next_name = "lecture_qa_generate" if grounded else "lecture_qa_decline"
+                next_label = (
+                    "Answering the interruption" if grounded else "Writing a grounded decline"
+                )
+                yield stage(next_name, next_label, "qa", IntelligenceTier.SMART)
+            if "generate" in payload:
+                yield stage_result(
+                    "lecture_qa_generate",
+                    "Answering the interruption",
+                    payload["generate"],
+                    "qa",
+                    IntelligenceTier.SMART,
+                )
+            if "decline" in payload:
+                yield stage_result(
+                    "lecture_qa_decline",
+                    "Writing a grounded decline",
+                    payload["decline"],
+                    "qa",
+                    IntelligenceTier.SMART,
+                )
+    except Exception as exc:
+        log.error("chat.lecture_interruption_failed", lecture_id=str(lecture.id), error=str(exc))
+        yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
+        return
+
+    yield {"event": "token", "data": json.dumps({"delta": suffix})}
+    answer = prefix + "".join(answer_parts) + suffix
+    used = _cited_numbers(answer)
+    citations = [item for item in citations if item["n"] in used] if grounded else []
+    if citations:
+        yield {"event": "citations", "data": json.dumps(citations)}
+    artifact = _lecture_artifact(lecture)
+    yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    spent = turn.as_payload()
+    yield {"event": "usage", "data": json.dumps(spent)}
+    message_id = await _save_lecture_message(session.id, answer, citations, artifact, spent, trace)
+    yield {
+        "event": "done",
+        "data": json.dumps({"message_id": message_id, "grounded": grounded, "lecture": True}),
+    }
+
+
+async def _run_lecture(
+    session: ChatSession,
+    user_id: uuid.UUID,
+    question: str,
+    history: list[tuple[str, str]],
+    stage,
+    stage_result,
+    trace: list[dict],
+    turn,
+) -> AsyncGenerator[dict, None]:
+    lecture = await _latest_lecture(session.id)
+    control = control_action(question)
+
+    if lecture is not None and control in ("pause", "stop"):
+        action_label = "Pausing lecture" if control == "pause" else "Ending lecture"
+        yield stage("lecture_control", action_label, "lecture")
+        async with AsyncSessionLocal() as db:
+            current = await db.scalar(
+                select(LectureSession).where(LectureSession.id == lecture.id).with_for_update()
+            )
+            if current is None:
+                return
+            current.status = "paused" if control == "pause" else "cancelled"
+            if control == "stop":
+                current.completed_at = datetime.now(UTC)
+            await db.commit()
+            lecture = current
+        yield stage_result(
+            "lecture_control",
+            action_label,
+            {"status": lecture.status, "lecture_id": str(lecture.id)},
+            "lecture",
+        )
+        content = (
+            "讲课已暂停，进度已经保存。"
+            if control == "pause"
+            else "这次讲课已结束，进度和讲课记录都已保存。"
+        )
+        for event in await _static_lecture_events(
+            session.id, content, _lecture_artifact(lecture), trace, turn
+        ):
+            yield event
+        return
+
+    if lecture is not None and lecture.status == "paused":
+        if control == "continue":
+            yield stage("lecture_control", "Restoring lecture checkpoint", "lecture")
+            async with AsyncSessionLocal() as db:
+                current = await db.scalar(
+                    select(LectureSession).where(LectureSession.id == lecture.id).with_for_update()
+                )
+                if current is None:
+                    return
+                current.status = "waiting_check" if current.pending_check else "active"
+                await db.commit()
+                lecture = current
+            yield stage_result(
+                "lecture_control",
+                "Restoring lecture checkpoint",
+                {
+                    "lecture_id": str(lecture.id),
+                    "section_index": lecture.current_section_index,
+                    "status": lecture.status,
+                },
+                "lecture",
+            )
+            if lecture.status == "waiting_check":
+                content = (
+                    "我们回到暂停的位置。请先回答上一节的检验题：\n\n"
+                    f"**{lecture.pending_check['question']}**"
+                )
+                for event in await _static_lecture_events(
+                    session.id, content, _lecture_artifact(lecture), trace, turn
+                ):
+                    yield event
+                return
+        else:
+            # A new lecture request should not silently overwrite the old
+            # checkpoint; keep it in history but make the new one authoritative.
+            async with AsyncSessionLocal() as db:
+                current = await db.get(LectureSession, lecture.id)
+                if current is not None:
+                    current.status = "cancelled"
+                    current.completed_at = datetime.now(UTC)
+                    await db.commit()
+            lecture = None
+
+    if lecture is not None and control == "restart":
+        old_scope = lecture.scope
+        async with AsyncSessionLocal() as db:
+            current = await db.get(LectureSession, lecture.id)
+            if current is not None:
+                current.status = "cancelled"
+                current.completed_at = datetime.now(UTC)
+                await db.commit()
+        lecture = None
+        question = old_scope
+
+    if lecture is not None and lecture.status == "waiting_check":
+        if control == "continue":
+            content = (
+                f"继续下一节之前，请先回答当前检验题：\n\n**{lecture.pending_check['question']}**"
+            )
+            for event in await _static_lecture_events(
+                session.id, content, _lecture_artifact(lecture), trace, turn
+            ):
+                yield event
+            return
+
+        yield stage(
+            "lecture_classify_input",
+            "Distinguishing an answer from an interruption",
+            "lecture",
+            IntelligenceTier.FAST,
+        )
+        try:
+            decision = await classify_lecture_input(question, lecture.pending_check["question"])
+            kind, confidence, reason = decision[:3]
+            decision_metadata = decision[3] if len(decision) > 3 else {}
+        except Exception as exc:
+            log.error("chat.lecture_classify_failed", lecture_id=str(lecture.id), error=str(exc))
+            kind, confidence, reason = parse_input_decision("", question)
+            decision_metadata = {
+                "format_recovered": True,
+                "recovery_method": "deterministic_heuristic",
+            }
+        yield stage_result(
+            "lecture_classify_input",
+            "Distinguishing an answer from an interruption",
+            {
+                "kind": kind,
+                "confidence": confidence,
+                "reason": reason,
+                **decision_metadata,
+            },
+            "lecture",
+            IntelligenceTier.FAST,
+        )
+        if kind == "question":
+            async for event in _run_lecture_interruption(
+                session, lecture, question, history, stage, stage_result, trace, turn
+            ):
+                yield event
+            return
+
+        yield stage(
+            "lecture_grade_check",
+            "Assessing understanding before advancing",
+            "lecture",
+            IntelligenceTier.SMART,
+        )
+        try:
+            grade = await grade_lecture_answer(
+                question, lecture.pending_check, language.instruction(question)
+            )
+            score, feedback = grade[:2]
+            grade_metadata = grade[2] if len(grade) > 2 else {}
+        except Exception as exc:
+            log.error("chat.lecture_grade_failed", lecture_id=str(lecture.id), error=str(exc))
+            yield stage_result(
+                "lecture_grade_check",
+                "Assessing understanding before advancing",
+                {
+                    "status": "retryable_error",
+                    "error_type": type(exc).__name__,
+                    "checkpoint_preserved": True,
+                },
+                "lecture",
+                IntelligenceTier.SMART,
+            )
+            artifact = _lecture_artifact(lecture)
+            artifact["error"] = "评分结果的格式仍然无效；答案和讲课进度已经保留，没有更新掌握度。"
+            artifact["actions"] = [
+                {"action": "retry_grade", "label": "重试评分", "message": question},
+                *(artifact.get("actions") or []),
+            ]
+            content = (
+                "这次评分响应格式不正确。系统已经自动修复并重试过一次，仍未通过校验；"
+                "你的答案和当前讲课 checkpoint 都已保留，可以直接点击“重试评分”。"
+            )
+            for event in await _static_lecture_events(session.id, content, artifact, trace, turn):
+                yield event
+            return
+        yield stage_result(
+            "lecture_grade_check",
+            "Assessing understanding before advancing",
+            {"score": score, "feedback": feedback, **grade_metadata},
+            "lecture",
+            IntelligenceTier.SMART,
+        )
+        already_processed = False
+        async with AsyncSessionLocal() as db:
+            current = await db.scalar(
+                select(LectureSession).where(LectureSession.id == lecture.id).with_for_update()
+            )
+            if current is None:
+                return
+            if current.pending_check is None:
+                already_processed = True
+            else:
+                history_rows = [dict(item) for item in current.section_history]
+                for item in reversed(history_rows):
+                    if item.get("index") == current.current_section_index:
+                        attempts = [
+                            *(item.get("attempts") or []),
+                            {"answer": question, "score": score, "feedback": feedback},
+                        ]
+                        item.update(
+                            {
+                                "answer": question,
+                                "score": score,
+                                "feedback": feedback,
+                                "attempts": attempts,
+                            }
+                        )
+                        if score >= 0.6:
+                            item["completed_at"] = datetime.now(UTC).isoformat()
+                        break
+                current.section_history = history_rows
+                topic = current.outline[current.current_section_index]["title"]
+                await record_mastery(db, current.workspace_id, current.user_id, topic, score)
+                if score >= 0.6:
+                    current.pending_check = None
+                    current.current_section_index += 1
+                    if current.current_section_index >= len(current.outline):
+                        current.status = "completed"
+                        current.completed_at = datetime.now(UTC)
+                    else:
+                        current.status = "active"
+                else:
+                    current.status = "waiting_check"
+            await db.commit()
+            lecture = current
+        if already_processed:
+            content = "这道检验题已经处理过了，当前讲课进度没有重复更新。"
+        elif lecture.status == "completed":
+            content = f"### 检验反馈\n\n{feedback}\n\n这次互动讲课已经完成。"
+        elif lecture.status == "waiting_check":
+            content = (
+                f"### 检验反馈\n\n{feedback}\n\n还没有达到进入下一节的标准，请结合反馈再回答一次。"
+            )
+        else:
+            content = f"### 检验反馈\n\n{feedback}\n\n准备好后，我们继续下一节。"
+        for event in await _static_lecture_events(
+            session.id, content, _lecture_artifact(lecture), trace, turn
+        ):
+            yield event
+        return
+
+    if lecture is not None and lecture.status == "active" and control not in ("continue", None):
+        return
+
+    if lecture is None and control == "continue":
+        content = "当前对话里没有可以恢复的讲课。请告诉我你想学习的主题，我会开始一节新课。"
+        artifact = {"type": "lecture", "status": "missing", "actions": []}
+        for event in await _static_lecture_events(session.id, content, artifact, trace, turn):
+            yield event
+        return
+
+    mode = "start" if lecture is None else "section"
+    state = {
+        "workspace_id": str(session.workspace_id),
+        "user_id": str(user_id),
+        "scope": question if lecture is None else lecture.scope,
+        "mode": mode,
+        "title": "" if lecture is None else lecture.title,
+        "outline": [] if lecture is None else lecture.outline,
+        "current_section_index": 0 if lecture is None else lecture.current_section_index,
+        "plan_context": "",
+        "mastery": "",
+        "context": [],
+        "section_content": "",
+        "pending_check": {},
+    }
+    order = (
+        ["load_context", "outline", "section"] if mode == "start" else ["load_context", "section"]
+    )
+    yield stage(order[0], LECTURE_STEPS[order[0]], "lecture")
+    results: dict = {}
+    try:
+        async for update in lecture_graph.astream(state, stream_mode="updates"):
+            for node, payload in update.items():
+                if node not in order:
+                    continue
+                results.update(payload or {})
+                shown = payload or {}
+                if node == "section":
+                    check = (payload or {}).get("pending_check") or {}
+                    shown = {
+                        "section_content": (payload or {}).get("section_content", ""),
+                        "section_format_recovered": (payload or {}).get(
+                            "section_format_recovered", False
+                        ),
+                        "section_recovery_method": (payload or {}).get("section_recovery_method"),
+                        "pending_check": {
+                            "question": check.get("question"),
+                            "source": check.get("source"),
+                            "answer_hidden_until_response": True,
+                        },
+                    }
+                tier = LECTURE_MODEL_TIERS.get(node)
+                yield stage_result(node, LECTURE_STEPS[node], shown, "lecture", tier)
+                following = order[order.index(node) + 1 :]
+                if following:
+                    next_node = following[0]
+                    yield stage(
+                        next_node,
+                        LECTURE_STEPS[next_node],
+                        "lecture",
+                        LECTURE_MODEL_TIERS.get(next_node),
+                    )
+    except Exception as exc:
+        log.error("chat.lecture_generate_failed", session_id=str(session.id), error=str(exc))
+        yield stage_result(
+            "lecture_recovery",
+            "Saving a recoverable Lecture error",
+            {"error_type": type(exc).__name__, "message": str(exc)[:500]},
+            "lecture",
+        )
+        if lecture is None:
+            artifact = {
+                "type": "lecture",
+                "title": "Lecture generation interrupted",
+                "status": "error",
+                "scope": question,
+                "current_section": 0,
+                "completed_sections": 0,
+                "total_sections": 0,
+                "sections": [],
+                "check_question": None,
+                "error": "The model response could not be converted into a lecture.",
+                "actions": [{"action": "retry", "label": "重试生成"}],
+            }
+        else:
+            artifact = _lecture_artifact(lecture)
+            artifact["error"] = "This section could not be generated; the checkpoint is unchanged."
+            artifact["actions"] = [{"action": "continue", "label": "重试本节"}]
+        content = "Lecture 生成暂时失败，但请求和已有进度都没有丢失。你可以直接点击重试。"
+        for event in await _static_lecture_events(session.id, content, artifact, trace, turn):
+            yield event
+        return
+
+    section_index = state["current_section_index"]
+    outline = results.get("outline") or state["outline"]
+    title = results.get("title") or state["title"]
+    pending = {
+        **results["pending_check"],
+        "section_index": section_index,
+        "section_title": outline[section_index]["title"],
+    }
+    citations = _citations_payload(results["context"])
+    content = (
+        f"## {outline[section_index]['title']}\n\n"
+        f"{results['section_content']}\n\n"
+        f"### 小节检验\n\n**{pending['question']}** [{pending['source']}]"
+    )
+    used = _cited_numbers(content)
+    citations = [item for item in citations if item["n"] in used]
+    async with AsyncSessionLocal() as db:
+        if lecture is None:
+            current = LectureSession(
+                workspace_id=session.workspace_id,
+                user_id=user_id,
+                chat_session_id=session.id,
+                title=title,
+                scope=question,
+                status="waiting_check",
+                current_section_index=section_index,
+                outline=outline,
+                pending_check=pending,
+                section_history=[],
+            )
+            db.add(current)
+            await db.flush()
+        else:
+            current = await db.scalar(
+                select(LectureSession).where(LectureSession.id == lecture.id).with_for_update()
+            )
+            if current is None:
+                return
+            current.status = "waiting_check"
+            current.pending_check = pending
+        current.section_history = [
+            *current.section_history,
+            {
+                "index": section_index,
+                "title": outline[section_index]["title"],
+                "content": results["section_content"],
+                "check_question": pending["question"],
+                "source": pending["source"],
+                "citations": citations,
+                "answer": None,
+            },
+        ]
+        await db.commit()
+        lecture = current
+    for event in await _static_lecture_events(
+        session.id, content, _lecture_artifact(lecture), trace, turn, citations
+    ):
+        yield event
 
 
 async def _run_multi_agent(
@@ -786,9 +1423,7 @@ async def _run_multi_agent(
         else:
             pages = payload.get("web_results", [])
             before_sources = source_number
-            citation_by_old_number = {
-                item["n"]: item for item in payload.get("web_citations", [])
-            }
+            citation_by_old_number = {item["n"]: item for item in payload.get("web_citations", [])}
             for page in pages:
                 if remaining_context_chars <= 0:
                     break
@@ -830,16 +1465,14 @@ async def _run_multi_agent(
         reply = await chat_model(IntelligenceTier.SMART).ainvoke(
             [
                 SystemMessage(
-                    MULTI_AGENT_ANSWER_SYSTEM.format(
-                        language=language.instruction(question)
-                    )
+                    MULTI_AGENT_ANSWER_SYSTEM.format(language=language.instruction(question))
                 ),
                 HumanMessage(
                     f"Original request:\n{question}\n\nCombined context:\n"
                     "<combined_context>\n"
                     f"{'\n\n'.join(context_blocks) or '(no sources were found)'}\n"
                     "</combined_context>"
-                )
+                ),
             ]
         )
         usage.record_message("multi_agent_answer", reply)
@@ -891,12 +1524,88 @@ async def _run_multi_agent(
         }
 
 
+def _replay_message_events(message: Message | None) -> list[dict]:
+    """Replay a completed idempotent turn without running any Agent again."""
+    if message is None:
+        return [
+            {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "grounded": False,
+                        "duplicate": True,
+                        "in_progress": True,
+                    }
+                ),
+            }
+        ]
+    events: list[dict] = []
+    for index, record in enumerate(message.trace or []):
+        stage_name = f"replay_{index}_{record.get('stage', 'step')}"
+        model_fields = {
+            key: record[key]
+            for key in ("provider", "model", "tier", "reasoning_effort")
+            if key in record
+        }
+        events.append(
+            {
+                "event": "stage",
+                "data": json.dumps(
+                    {
+                        "agent": record.get("agent", "agent"),
+                        "stage": stage_name,
+                        "label": record.get("label", "Replaying completed step"),
+                        **model_fields,
+                    }
+                ),
+            }
+        )
+        events.append(
+            {
+                "event": "stage_result",
+                "data": json.dumps(
+                    {
+                        "stage": stage_name,
+                        "result": record.get("result"),
+                        **model_fields,
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+    events.append({"event": "token", "data": json.dumps({"delta": message.content})})
+    if message.citations:
+        events.append({"event": "citations", "data": json.dumps(message.citations)})
+    for citation in message.web_citations:
+        events.append({"event": "web_citation", "data": json.dumps(citation)})
+    if message.artifacts:
+        events.append(
+            {"event": "artifact", "data": json.dumps(message.artifacts, ensure_ascii=False)}
+        )
+    if message.usage:
+        events.append({"event": "usage", "data": json.dumps(message.usage)})
+    events.append(
+        {
+            "event": "done",
+            "data": json.dumps(
+                {
+                    "message_id": str(message.id),
+                    "grounded": bool(message.citations or message.web_citations),
+                    "duplicate": True,
+                }
+            ),
+        }
+    )
+    return events
+
+
 async def stream_answer(
     session_id: uuid.UUID,
     question: str,
     force_web: bool = False,
     user_id: uuid.UUID | None = None,
     intent_override: Intent | None = None,
+    request_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Run the QA graph and yield SSE events: citations, token, done.
 
@@ -905,20 +1614,73 @@ async def stream_answer(
     decides. Either way web only runs when the deployment enabled it, and never
     as a silent fallback — an uncovered question declines and offers the button.
     """
+    duplicate = False
+    duplicate_reply: Message | None = None
     async with AsyncSessionLocal() as db:
         session = await db.get(ChatSession, session_id)
-        history = await db.scalars(
-            select(Message)
-            .where(Message.session_id == session_id)
-            .order_by(Message.created_at.desc())
-            .limit(HISTORY_TURNS)
+        existing_request = (
+            await db.scalar(select(Message).where(Message.client_request_id == request_id))
+            if request_id is not None
+            else None
         )
-        history_pairs = [(m.role, m.content) for m in reversed(list(history))]
+        if existing_request is not None:
+            duplicate = True
+            if existing_request.session_id == session_id:
+                duplicate_reply = await db.scalar(
+                    select(Message)
+                    .where(
+                        Message.session_id == session_id,
+                        Message.role == "assistant",
+                        Message.created_at > existing_request.created_at,
+                    )
+                    .order_by(Message.created_at)
+                    .limit(1)
+                )
+        if duplicate:
+            history_pairs = []
+        else:
+            history = await db.scalars(
+                select(Message)
+                .where(Message.session_id == session_id)
+                .order_by(Message.created_at.desc())
+                .limit(HISTORY_TURNS)
+            )
+            history_pairs = [(m.role, m.content) for m in reversed(list(history))]
 
-        db.add(Message(session_id=session_id, role="user", content=question))
-        if session.title is None:
-            session.title = question[:60]
-        await db.commit()
+            db.add(
+                Message(
+                    session_id=session_id,
+                    role="user",
+                    content=question,
+                    client_request_id=request_id,
+                )
+            )
+            if session.title is None:
+                session.title = question[:60]
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                duplicate = True
+                existing_request = await db.scalar(
+                    select(Message).where(Message.client_request_id == request_id)
+                )
+                if existing_request is not None and existing_request.session_id == session_id:
+                    duplicate_reply = await db.scalar(
+                        select(Message)
+                        .where(
+                            Message.session_id == session_id,
+                            Message.role == "assistant",
+                            Message.created_at > existing_request.created_at,
+                        )
+                        .order_by(Message.created_at)
+                        .limit(1)
+                    )
+
+    if duplicate:
+        for event in _replay_message_events(duplicate_reply):
+            yield event
+        return
 
     state = {
         "question": question,
@@ -940,6 +1702,15 @@ async def stream_answer(
     grounded = False
     trace: list[dict] = []
     turn = usage.start()
+
+    # A pending Lecture check is a durable interrupt. The next free-form user
+    # message belongs to that checkpoint unless the UI explicitly selected a
+    # different top-level intent.
+    waiting_lecture = (
+        await _latest_lecture(session_id, ("waiting_check",))
+        if not force_web and intent_override is None
+        else None
+    )
 
     # The flow that handled the turn, so the whole call chain reads "web" or
     # "qa" rather than a hardcoded label. Set once the router decides; the stage
@@ -987,13 +1758,16 @@ async def stream_answer(
 
     # Show the router immediately while its model call is running. Web is still
     # selected only when the deployment allows it and this turn explicitly asks.
-    explicitly_routed = force_web or intent_override is not None
+    explicitly_routed = force_web or intent_override is not None or waiting_lecture is not None
     router_tier = None if explicitly_routed else IntelligenceTier.FAST
     yield stage("router", "Understanding request", agent_name="router", tier=router_tier)
     intent: Intent = "qa"
     tasks: tuple[AgentTask, ...] = ()
     decision = None
-    if force_web and settings.web_search_enabled:
+    if waiting_lecture is not None:
+        intent = "lecture"
+        tasks = (AgentTask("lecture", question),)
+    elif force_web and settings.web_search_enabled:
         intent = "web"
         tasks = (AgentTask("web", question),)
     elif intent_override is not None:
@@ -1053,9 +1827,7 @@ async def stream_answer(
             return
         intent = decision.intent or "qa"
         tasks = decision.tasks or (AgentTask(intent, question),)
-    web_authorized = (
-        force_web or intent_override == "web" or explicit_web_request(question)
-    )
+    web_authorized = force_web or intent_override == "web" or explicit_web_request(question)
     tasks = filter_authorized_tasks(
         tasks,
         question,
@@ -1077,23 +1849,27 @@ async def stream_answer(
         "progress": "a mastery summary",
         "plan": "a study plan",
         "explain": "a structured explanation",
+        "lecture": "an interactive lecture",
     }.get(intent, "your material")
     yield stage_result(
         "router",
         "Understanding request",
         {
             "intent": intent,
-            "tasks": [
-                {"agent": task.agent, "query": task.query}
-                for task in tasks
-            ],
+            "tasks": [{"agent": task.agent, "query": task.query} for task in tasks],
             "agent_count": len(tasks),
             "routed_to": _routed,
             "forced_by_user_action": force_web,
             "selected_by_user": intent_override is not None,
             "confidence": decision.confidence if decision else 1.0,
             "alternatives": list(decision.alternatives) if decision else [],
-            "reason": decision.reason if decision else "explicit user selection",
+            "reason": (
+                decision.reason
+                if decision
+                else "resuming a durable lecture checkpoint"
+                if waiting_lecture is not None
+                else "explicit user selection"
+            ),
             "web_search_enabled": settings.web_search_enabled,
             "web_authorized_by_user": web_authorized,
         },
@@ -1127,9 +1903,7 @@ async def stream_answer(
         return
 
     if intent == "test" and user_id is not None:
-        async for event in _run_test(
-            session, user_id, question, stage, stage_result, trace, turn
-        ):
+        async for event in _run_test(session, user_id, question, stage, stage_result, trace, turn):
             yield event
         return
 
@@ -1150,6 +1924,20 @@ async def stream_answer(
     if intent == "explain" and user_id is not None:
         async for event in _run_explanation(
             session, user_id, question, stage, stage_result, trace, turn
+        ):
+            yield event
+        return
+
+    if intent == "lecture" and user_id is not None:
+        async for event in _run_lecture(
+            session,
+            user_id,
+            question,
+            history_pairs,
+            stage,
+            stage_result,
+            trace,
+            turn,
         ):
             yield event
         return

@@ -29,7 +29,8 @@ erDiagram
     CHAT_SESSION ||--o{ MESSAGE : contains
 
     USER ||--o{ LECTURE_SESSION : has
-    LECTURE_SESSION }o--|| STUDY_PLAN : based_on
+    CHAT_SESSION ||--o{ LECTURE_SESSION : checkpoints
+    LECTURE_SESSION }o--o| PLAN_STAGE : based_on
 
     USER ||--o{ MASTERY_RECORD : has
     MASTERY_RECORD }o--|| TOPIC : about
@@ -86,13 +87,16 @@ erDiagram
 
 ### ChatSession / Message（问答会话）
 - ChatSession: `id`, `user_id`, `workspace_id`, `mode`（`strict|augmented`）, `created_at`
-- Message: `id`, `chat_session_id`, `role`（`user|assistant`）, `content`, `citations_json`（引用的 chunk 列表及定位）, `web_citations_json`（一次性联网问答时引用的网页：URL、标题、域名、抓取时间；与本地引用分开存储以便前端区分展示）, `used_web_search`（bool，标记该轮回答是否用了联网）, `created_at`
+- Message: `id`, `chat_session_id`, `role`（`user|assistant`）, `content`, `client_request_id`（用户 turn 的全局唯一幂等键）, `citations_json`（引用的 chunk 列表及定位）, `web_citations_json`（一次性联网问答时引用的网页：URL、标题、域名、抓取时间；与本地引用分开存储以便前端区分展示）, `used_web_search`（bool，标记该轮回答是否用了联网）, `created_at`
 
 ### LectureSession（Lecture 会话）
-- `id`, `user_id`, `workspace_id`, `study_plan_stage_id`（可选，关联学习计划阶段）
+- `id`, `user_id`, `workspace_id`, `chat_session_id`, `plan_stage_id`（可选）
 - `outline_json`：本次 Lecture 的分节大纲
-- `current_section_index`, `status`（`in_progress|paused|completed`）
-- `transcript`：已讲解内容+互动问答记录
+- `current_section_index`, `status`（`active|waiting_check|paused|completed|cancelled`）
+- `pending_check`：当前节检验题及服务端参考答案；参考答案不会进入 Chat artifact 或调用链
+- `section_history`：已讲内容、引用、用户回答、反馈和得分；用于恢复、审计与掌握度更新
+- Lecture 长生命周期 checkpoint 存在关系库中，Chat 消息继续作为用户可见的 transcript
+- 后续媒体扩展使用独立 `LectureMediaAsset`，按 Lecture/小节关联 `kind`（`narration|audio|video`）、内容版本、生成状态、模型、存储位置、时长和元数据；不把二进制或供应商任务状态塞进 `section_history`
 
 ### MasteryRecord（掌握度）
 - `id`, `user_id`, `workspace_id`, `topic_id`, `mastery_score`（0-1）, `last_updated_at`, `evidence_count`（有多少次问答/测验信号支撑该分数）
@@ -108,3 +112,4 @@ erDiagram
 - `MasteryRecord` 按 `(user_id, workspace_id, topic_id)` 唯一，便于 upsert 更新。
 - `ReviewItem.next_review_at` 建索引，支持"今日待复习"查询。
 - `Source.provenance` 建索引，支持"只看/只删联网补充的资料"这类筛选操作。
+- `Message.client_request_id` 使用允许 NULL 的唯一索引，防止页面重挂载或客户端重试重复执行同一 Agent turn。

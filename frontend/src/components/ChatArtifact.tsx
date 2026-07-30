@@ -14,6 +14,7 @@ import {
 } from '@/lib/api'
 
 type ChooseIntent = (intent: ChatIntent, label: string) => void
+type LectureAction = 'continue' | 'pause' | 'stop' | 'retry' | 'retry_grade'
 
 function ResponseField({
   question,
@@ -253,16 +254,108 @@ function ReviewCard({ workspaceId, ids }: { workspaceId: string; ids: string[] }
   )
 }
 
+function LectureCard({
+  artifact,
+  disabled,
+  onAction,
+}: {
+  artifact: Artifact
+  disabled?: boolean
+  onAction: (action: LectureAction, message?: string) => void
+}) {
+  const sections = (artifact.sections ?? []) as {
+    index: number
+    title: string
+    status: 'done' | 'current' | 'upcoming'
+  }[]
+  const actions = (artifact.actions ?? []) as {
+    action: LectureAction
+    label: string
+    message?: string
+  }[]
+  const total = Number(artifact.total_sections ?? 0)
+  const current = Number(artifact.current_section ?? 0)
+  const completed = Number(artifact.completed_sections ?? 0)
+  const status = String(artifact.status ?? '')
+  const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
+  const statusLabels: Record<string, string> = {
+    active: '等待继续',
+    waiting_check: '等待回答',
+    paused: '已暂停',
+    completed: '已完成',
+    cancelled: '已结束',
+    missing: '尚未开始',
+  }
+  return (
+    <section className="chat-artifact lecture-card">
+      <div className="lecture-head">
+        <div>
+          <span className="badge">互动讲课</span>
+          <strong>{String(artifact.title ?? 'Lecture')}</strong>
+        </div>
+        <span className={`lecture-status ${status}`}>{statusLabels[status] ?? status}</span>
+      </div>
+      {total > 0 && (
+        <>
+          <div className="lecture-progress-label">
+            <span>第 {current} / {total} 节</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="lecture-progress" aria-label={`讲课进度 ${progress}%`}>
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <ol className="lecture-sections">
+            {sections.map((section) => (
+              <li className={section.status} key={`${section.index}-${section.title}`}>
+                <span>{section.status === 'done' ? '✓' : section.index + 1}</span>
+                {section.title}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {artifact.check_question ? (
+        <div className="lecture-check">
+          <strong>等待你的回答</strong>
+          <p>{String(artifact.check_question)}</p>
+          <small>直接在下方 Chat 输入框作答；也可以随时插入一个问题。</small>
+        </div>
+      ) : null}
+      {artifact.error ? <p className="error">{String(artifact.error)}</p> : null}
+      {actions.length > 0 && (
+        <div className="lecture-actions">
+          {actions.map((action) => (
+            <button
+              type="button"
+              className={action.action === 'stop' ? 'secondary' : undefined}
+              disabled={disabled}
+              key={action.action}
+              onClick={() => {
+                if (action.message) onAction(action.action, action.message)
+                else onAction(action.action)
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function ChatArtifact({
   artifact,
   workspaceId,
   disabled,
   onChooseIntent,
+  onLectureAction,
 }: {
   artifact: Artifact
   workspaceId: string
   disabled?: boolean
   onChooseIntent: ChooseIntent
+  onLectureAction: (action: LectureAction, message?: string) => void
 }) {
   if (artifact.type === 'clarification') {
     const options = (artifact.options ?? []) as { intent: ChatIntent; label: string; description: string }[]
@@ -285,6 +378,9 @@ export default function ChatArtifact({
     const graph = artifact.graph as KnowledgeGraph
     const titles = new Map(graph?.nodes?.map((node) => [node.id, node.title]))
     return <div className="chat-artifact knowledge-graph"><strong>知识关系</strong><div className="knowledge-nodes">{graph?.nodes?.map((node) => <span className="badge" key={node.id}>{node.title}{node.mastery == null ? '' : ` · ${Math.round(node.mastery)}%`}</span>)}</div>{graph?.edges?.length > 0 && <div className="knowledge-edges">{graph.edges.map((edge, index) => <small key={`${edge.from}-${edge.to}-${index}`}>{titles.get(edge.from) ?? edge.from} → {titles.get(edge.to) ?? edge.to}</small>)}</div>}</div>
+  }
+  if (artifact.type === 'lecture') {
+    return <LectureCard artifact={artifact} disabled={disabled} onAction={onLectureAction} />
   }
   return null
 }

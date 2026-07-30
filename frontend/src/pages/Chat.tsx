@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -111,9 +111,12 @@ function Answer({
   )
 }
 
-export default function Chat() {
+export default function Chat({ experience = 'chat' }: { experience?: 'chat' | 'lecture' }) {
   const { id: workspaceId, sid: sessionId } = useParams<{ id: string; sid: string }>()
-  const initialQuestion = (useLocation().state as { initial?: string } | null)?.initial
+  const location = useLocation()
+  const navigate = useNavigate()
+  const initialState = location.state as { initial?: string; requestId?: string } | null
+  const initialQuestion = initialState?.initial
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -156,7 +159,15 @@ export default function Chat() {
       )
       if (initialQuestion) {
         sentInitial.current = true
-        send(initialQuestion)
+        // Consume route state before starting the request. A refresh, HMR or
+        // StrictMode remount can no longer replay the same initial turn.
+        navigate(location.pathname, { replace: true, state: null })
+        send(
+          initialQuestion,
+          false,
+          experience === 'lecture' ? 'lecture' : undefined,
+          initialState?.requestId ?? crypto.randomUUID(),
+        )
       }
     })
     return () => {
@@ -172,7 +183,17 @@ export default function Chat() {
   const patchLast = (patch: (last: Msg) => Msg) =>
     setMessages((m) => [...m.slice(0, -1), patch(m[m.length - 1])])
 
-  async function send(question: string, webSearch = false, intent?: ChatIntent) {
+  const latestLectureArtifact = messages.reduce(
+    (latest, message, index) => (message.artifact?.type === 'lecture' ? index : latest),
+    -1,
+  )
+
+  async function send(
+    question: string,
+    webSearch = false,
+    intent?: ChatIntent,
+    requestId: string = crypto.randomUUID(),
+  ) {
     if (!question.trim() || streaming || !sessionId) return
     setError('')
     setStreaming(true)
@@ -259,6 +280,7 @@ export default function Chat() {
         },
         webSearch,
         intent,
+        requestId,
       )
       if (!finished) {
         // Stream ended without a done event: connection dropped mid-answer.
@@ -276,9 +298,10 @@ export default function Chat() {
   return (
     <main className="chat-shell">
       <header className="topbar">
-        <Link to={`/w/${workspaceId}`} className="muted">
-          ← Back to workspace
-        </Link>
+        <div className="experience-title">
+          <Link to={`/w/${workspaceId}`} className="muted">← Back to workspace</Link>
+          {experience === 'lecture' ? <strong>Lecture Studio</strong> : null}
+        </div>
       </header>
 
       <div className="chat-messages">
@@ -300,10 +323,20 @@ export default function Chat() {
                 <ChatArtifact
                   artifact={m.artifact}
                   workspaceId={workspaceId}
-                  disabled={streaming}
+                  disabled={streaming || (m.artifact.type === 'lecture' && i !== latestLectureArtifact)}
                   onChooseIntent={(intent, label) => {
                     const original = messages[i - 1]?.content ?? ''
                     send(`按“${label}”继续处理这个请求：${original}`, intent === 'web', intent)
+                  }}
+                  onLectureAction={(action, actionMessage) => {
+                    const commands = {
+                      continue: '继续讲课',
+                      pause: '暂停讲课',
+                      stop: '结束这次讲课',
+                      retry: `重试生成这节讲课：${String(m.artifact?.scope ?? messages[i - 1]?.content ?? '')}`,
+                      retry_grade: actionMessage ?? messages[i - 1]?.content ?? '重试评分',
+                    } as const
+                    send(commands[action], false, 'lecture')
                   }}
                 />
               )}
@@ -344,7 +377,11 @@ export default function Chat() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question about your material…"
+          placeholder={
+            experience === 'lecture'
+              ? '回答检验题、插入问题，或控制讲课进度…'
+              : 'Ask a question about your material…'
+          }
           disabled={streaming}
         />
         <button type="submit" disabled={streaming || !input.trim()}>

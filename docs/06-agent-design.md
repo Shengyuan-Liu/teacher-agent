@@ -41,7 +41,7 @@ flowchart LR
 ```
 
 - **Orchestrator**：所有 Chat 请求先由 Fast 档小模型生成 `tasks[]` 计划，每项包含 Agent 和可独立执行的 query。简单请求只有一项；显式要求“联网查询 + 检查教材”等不同来源的复合请求会同时生成 `web` 与 `qa` 子任务。两个 Agent 并发收集网页正文与 RAG 片段，但不各自生成答案；Orchestrator 先把原始上下文统一编号并拼接，再只调用一次 Smart 档 Answer Agent。低置信度的候选方向属于“二选一”而非复合任务，此时 Router 不执行任务，而是在 Chat 消息内给出可点击选项。每个 Agent 的任务、上下文结果、模型档位和实际模型都会写入同一条调用链。
-- **单一交互入口**：问答、详细讲解、练习、计时测试、错题复习和掌握度查看都在 Chat 消息中完成；前端以持久化 `artifacts` 渲染交互卡片，不为每个 Agent 建立独立页面。
+- **共享交互运行时**：问答、详细讲解、练习、计时测试、错题复习和掌握度查看在 Chat 中完成；Lecture 作为核心宣传功能拥有平级入口和专属页面，但仍使用相同的消息、SSE、trace、artifact 和 QA 子图，而不是复制 Agent 编排。
 - **多 Agent 边界**：当前组合执行面向知识获取任务（`qa` 与 `web`，可各有多个聚焦子问题）；测验、计划等会写数据库的动作型 Agent 仍保持单任务事务，避免一次模糊请求产生多个不可逆状态变更。
 - **子图（Subgraph）**：QA、Planner、Quiz、Lecture 各自是独立的 `StateGraph`，有各自的 State（TypedDict/Pydantic）、节点、边。子图之间通过共享的 Tools 和数据库访问层复用能力，而不是互相硬编码调用。
 
@@ -108,16 +108,18 @@ State: `{ workspace_id, scope, type_distribution, difficulty, retrieved_chunks, 
 
 ### 4.5 Lecture Subgraph
 
-State: `{ workspace_id, outline(sections), current_section_index, transcript, pending_check_question, status }`
+State: `{ workspace_id, user_id, scope, mode, outline, current_section_index, plan_context, mastery, context, section_content, pending_check }`
 
-节点：`generate_section_content → ask_check_question → [wait_for_user_input（LangGraph interrupt）] → classify_user_input（回答问题 / 打断提问 / 控制指令）→ [handle_answer | delegate_to_QAGraph | handle_control] → advance_or_repeat`
+短事务图节点：`load_context → [outline（仅首次）] → section`。`section` 同时生成有引用的讲解和一道理解检验题。
 
-- `wait_for_user_input` 使用 LangGraph 的 `interrupt()`：图执行暂停，状态持久化（checkpoint），用户下次请求（回答/提问/控制指令）到达时从断点恢复，天然支持"过一天再回来继续听课"。
-- 用户打断提问时，`delegate_to_QAGraph` 节点直接调用 QA 子图处理（复用问答能力，而不是重新实现一套问答逻辑），处理完仍回到 Lecture 的 `advance_or_repeat`。
+- 图运行结束后，将 `outline/current_section_index/pending_check/section_history/status` 原子写入 `LectureSession`。等待人类输入期间没有悬挂的进程或数据库事务；用户下次请求从这条记录恢复，因此 API 重启和跨天继续使用同一路径。
+- 待回答状态下，Fast 档 `classify_lecture_input` 区分“作答 / 插问”；作答交给 Smart 档评分并更新 Mastery，插问直接调用 QA 子图。QA 完成后不改 Lecture checkpoint。
+- 参考答案只存在服务端 `pending_check`，调用链仅显示题目、来源号和 `answer_hidden_until_response=true`，防止交互卡片泄题。
+- 所有 Lecture 结构化节点（输入分类、大纲、小节、理解度评分）统一经过 `structured_output`：先提取 JSON 并本地修复代码围栏、尾逗号或 Python 字典，再做 schema 校验，仍失败时只调用一次同档模型修复。大纲/小节可降级为基于检索片段的确定性结构；评分不可恢复时不推进 section、不写 Mastery，持久化“重试评分”动作并正常发送 `done`，不会留下孤立请求。
 
 ## 5. 状态持久化与记忆策略
 
-- **短期（会话内）记忆**：LangGraph checkpointer（生产建议 Postgres checkpointer），支撑"暂停/恢复"和多轮上下文。
+- **短期（会话内）记忆**：普通问答读取最近消息；Lecture 使用 PostgreSQL `LectureSession` 作为显式 checkpoint。状态结构可查询、可迁移，也不会在等待用户时占用长事务。
 - **长期记忆**：不放在 LLM 上下文里，而是结构化存储在关系库（`MasteryRecord`、`StudyPlan`、`ReviewItem` 等），每次对话/讲课开始时按需读取相关的长期状态注入 prompt（如"用户在此知识点掌握度较低，讲解时多举例子"），避免长期记忆无限膨胀塞进 context。
 
 ## 6. 模型路由策略

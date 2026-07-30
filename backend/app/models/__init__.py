@@ -9,6 +9,7 @@ from app.models.assessment import (
 )
 from app.models.chat import ChatSession, Message
 from app.models.chunk import Chunk, ChunkParent
+from app.models.lecture import LectureSession
 from app.models.source import Source, SourceProvenance, SourceStatus, SourceType
 from app.models.study_plan import PlanStage, Question, StudyPlan
 from app.models.user import User
@@ -22,6 +23,7 @@ __all__ = [
     "Chunk",
     "ChunkParent",
     "Message",
+    "LectureSession",
     "PlanStage",
     "Question",
     "ReviewItem",

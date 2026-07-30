@@ -10,6 +10,7 @@ from app.api.v1 import (
     chat,
     health,
     images,
+    lectures,
     plans,
     sources,
     web_search,
@@ -57,6 +58,7 @@ for router in (
     images.router,
     chat.router,
     plans.router,
+    lectures.router,
     assessments.router,
     web_search.router,
 ):

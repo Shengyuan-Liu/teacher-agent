@@ -38,3 +38,6 @@ class AskRequest(BaseModel):
     web_search: bool = False
     #: set only when the learner clicks a router clarification choice
     intent: Intent | None = None
+    #: generated once by the client; prevents remounts/retries from executing
+    #: the same turn more than once
+    request_id: uuid.UUID | None = None

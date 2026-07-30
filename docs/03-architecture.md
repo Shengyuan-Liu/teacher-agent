@@ -155,9 +155,12 @@ flowchart TB
 
 ### 3.6 Lecture 流程
 
-1. 触发 Lecture（基于计划某阶段或用户指定范围）→ Lecture Agent 生成分节大纲 → 逐节流式讲解。
-2. 每节末尾插入检验问题，等待用户响应（Agent 图在此暂停，等待人类输入——LangGraph 的 `interrupt` 机制）。
-3. 用户打断提问时，临时切换到 QA Agent 子图处理，处理完后恢复 Lecture Agent 的状态继续讲课。
+1. 用户在 Chat 触发 Lecture（基于计划阶段或自由主题）→ Lecture LangGraph 读取计划、掌握度和 RAG 片段 → 生成分节大纲及当前小节。
+2. 每节末尾插入检验问题，`LectureSession` 进入 `waiting_check`；大纲、节位置、待回答问题和历史写入 PostgreSQL，形成跨进程、跨天的 durable checkpoint。
+3. 下一条 Chat 输入由 Fast 档 Lecture 分类器区分“检验题作答”与“插入问题”。作答由 Smart 档评分并更新掌握度；插问委托现有 QA 子图，结束后保留原 checkpoint。
+4. 暂停、继续、结束均作为 Lecture 对话控制消息处理。Lecture 是与 Chat 平级的产品入口和专属页面，但复用同一套 SSE、消息、调用链和 QA 子图，不复制一套 Agent runtime。
+5. 后续音频/视频生成以 Lecture 小节为最小发布单元：讲稿、引用和检验内容先版本化，再异步派生 narration、audio、video 等媒体资产，生成失败不影响文本 Lecture 和 checkpoint。
+6. 前端每个 turn 生成稳定 `request_id` 并在消费路由初始问题后立即清除 navigation state；后端以唯一 `client_request_id` 幂等执行，刷新、HMR 或网络重试不会重复生成同一节课。
 
 ## 4. 部署形态
 
