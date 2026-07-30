@@ -7,7 +7,14 @@ import remarkMath from 'remark-math'
 import ActivityTrace, { type TraceStep } from '@/components/ActivityTrace'
 import CitationRef from '@/components/CitationRef'
 import UsageNote from '@/components/UsageNote'
-import { api, streamAnswer, type Citation, type Usage } from '@/lib/api'
+import {
+  api,
+  streamAnswer,
+  type Citation,
+  type Usage,
+  type WebCitation,
+  type WebSearchSuggestion,
+} from '@/lib/api'
 import { normaliseMath } from '@/lib/markdown'
 import { rehypeCitations } from '@/lib/rehypeCitations'
 import 'katex/dist/katex.min.css'
@@ -16,6 +23,9 @@ interface Msg {
   role: 'user' | 'assistant'
   content: string
   citations: Citation[] | null
+  webCitations?: WebCitation[]
+  usedWebSearch?: boolean
+  suggestion?: WebSearchSuggestion | null
   usage?: Usage | null
   trace?: TraceStep[]
   streaming?: boolean
@@ -40,13 +50,29 @@ function CitationChips({
   )
 }
 
+function WebCitationChips({ citations }: { citations: WebCitation[] }) {
+  return (
+    <div className="citations web-citations">
+      <span className="badge web-badge">🌐 From the web</span>
+      {citations.map((c) => (
+        <a key={c.n} className="badge web-cite" href={c.url} target="_blank" rel="noreferrer">
+          [{c.n}] {c.domain}
+          {c.title ? ` · ${c.title}` : ''}
+        </a>
+      ))}
+    </div>
+  )
+}
+
 function Answer({
   content,
   citations,
+  webCitations,
   workspaceId,
 }: {
   content: string
   citations: Citation[] | null
+  webCitations?: WebCitation[]
   workspaceId?: string
 }) {
   return (
@@ -57,6 +83,14 @@ function Answer({
         components={{
           cite: ({ node }) => {
             const n = Number((node?.properties as { dataN?: string })?.dataN)
+            const web = webCitations?.find((c) => c.n === n)
+            if (web) {
+              return (
+                <a className="cite web" href={web.url} target="_blank" rel="noreferrer" title={web.title}>
+                  [{n}]
+                </a>
+              )
+            }
             return (
               <CitationRef
                 n={n}
@@ -80,8 +114,13 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
+  const [webEnabled, setWebEnabled] = useState(false)
   const bottom = useRef<HTMLDivElement>(null)
   const sentInitial = useRef(false)
+
+  useEffect(() => {
+    api.capabilities().then((c) => setWebEnabled(c.web_search))
+  }, [])
 
   useEffect(() => {
     if (!sessionId) return
@@ -94,6 +133,8 @@ export default function Chat() {
           role: m.role,
           content: m.content,
           citations: m.citations,
+          webCitations: m.web_citations,
+          usedWebSearch: m.used_web_search,
           usage: m.usage,
           trace: (m.trace ?? []).map((t, i) => ({
             key: `${t.stage}-${i}`,
@@ -122,7 +163,7 @@ export default function Chat() {
   const patchLast = (patch: (last: Msg) => Msg) =>
     setMessages((m) => [...m.slice(0, -1), patch(m[m.length - 1])])
 
-  async function send(question: string) {
+  async function send(question: string, webSearch = false) {
     if (!question.trim() || streaming || !sessionId) return
     setError('')
     setStreaming(true)
@@ -133,9 +174,14 @@ export default function Chat() {
     ])
 
     let citations: Citation[] = []
+    let webCitations: WebCitation[] = []
+    let usedWeb = false
     let finished = false
     try {
-      await streamAnswer(sessionId, question, {
+      await streamAnswer(
+        sessionId,
+        question,
+        {
         onStage: (e) =>
           patchLast((last) => ({
             ...last,
@@ -155,6 +201,13 @@ export default function Chat() {
           citations = c
         },
         onToken: (delta) => patchLast((last) => ({ ...last, content: last.content + delta })),
+        onWebCitation: (c) => {
+          usedWeb = true
+          webCitations = [...webCitations, c]
+          patchLast((last) => ({ ...last, webCitations, usedWebSearch: true }))
+        },
+        onWebSearchSuggested: (s) =>
+          patchLast((last) => ({ ...last, suggestion: s })),
         onUsage: (u) => patchLast((last) => ({ ...last, usage: u })),
         onDone: (payload) => {
           finished = true
@@ -163,6 +216,8 @@ export default function Chat() {
             ...last,
             streaming: false,
             citations: grounded ? citations : null,
+            webCitations: usedWeb ? webCitations : [],
+            usedWebSearch: usedWeb,
             trace: (last.trace ?? []).map((s) => ({ ...s, done: true })),
           }))
         },
@@ -171,7 +226,9 @@ export default function Chat() {
           setError(message)
           patchLast((last) => ({ ...last, streaming: false }))
         },
-      })
+        },
+        webSearch,
+      )
       if (!finished) {
         // Stream ended without a done event: connection dropped mid-answer.
         setError('The answer was interrupted. Please try again.')
@@ -202,10 +259,28 @@ export default function Chat() {
           ) : (
             <div key={i} className="msg-assistant">
               {m.trace && m.trace.length > 0 && <ActivityTrace steps={m.trace} />}
-              <Answer content={m.content} citations={m.citations} workspaceId={workspaceId} />
+              <Answer
+                content={m.content}
+                citations={m.citations}
+                webCitations={m.webCitations}
+                workspaceId={workspaceId}
+              />
               {m.streaming && <span className="cursor" />}
               {m.citations && m.citations.length > 0 && (
                 <CitationChips citations={m.citations} workspaceId={workspaceId} />
+              )}
+              {m.webCitations && m.webCitations.length > 0 && (
+                <WebCitationChips citations={m.webCitations} />
+              )}
+              {m.suggestion && webEnabled && !m.streaming && (
+                <button
+                  type="button"
+                  className="web-suggest"
+                  disabled={streaming}
+                  onClick={() => send(m.suggestion!.suggested_query, true)}
+                >
+                  🌐 Not in your material — search the web?
+                </button>
               )}
               {m.usage && !m.streaming && <UsageNote usage={m.usage} />}
             </div>

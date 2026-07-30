@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,15 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    #: web pages a one-shot web answer leaned on (url/title/domain/fetched_at),
+    #: kept apart from local citations so the client can flag them differently
+    web_citations: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    #: whether this turn used web search at all
+    used_web_search: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     #: tokens and cost for the whole turn that produced this reply
     usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     #: agent steps that produced this reply, for the collapsible call chain

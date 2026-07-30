@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import SourceImage from '@/components/SourceImage'
 import type { Citation } from '@/lib/api'
-import { shouldStayOpen, type Point } from '@/lib/safeTriangle'
 
-const GRACE_MS = 250
+const GRACE_MS = 200
 
+/**
+ * A `[n]` citation marker that reveals its source on hover.
+ *
+ * Open while the pointer is over the marker or the card; a short grace period
+ * on leave lets the pointer cross the small gap between them without dismissing
+ * it. (An earlier version tracked a "safe triangle" off a global mousemove,
+ * which collapsed to a point at the entry position and dismissed the card on
+ * the slightest movement — so it often never appeared at all.)
+ */
 export default function CitationRef({
   n,
   citation,
@@ -15,47 +23,23 @@ export default function CitationRef({
   workspaceId?: string
 }) {
   const [open, setOpen] = useState(false)
-  const card = useRef<HTMLSpanElement>(null)
-  const origin = useRef<Point>({ x: 0, y: 0 })
   const closeTimer = useRef<number | undefined>(undefined)
-
-  useEffect(() => {
-    if (!open) return
-
-    const onMove = (e: MouseEvent) => {
-      const box = card.current?.getBoundingClientRect()
-      const pointer = { x: e.clientX, y: e.clientY }
-      const safe = box ? shouldStayOpen(pointer, origin.current, box) : false
-
-      if (safe) {
-        window.clearTimeout(closeTimer.current)
-        closeTimer.current = undefined
-      } else if (closeTimer.current === undefined) {
-        closeTimer.current = window.setTimeout(() => setOpen(false), GRACE_MS)
-      }
-    }
-
-    document.addEventListener('mousemove', onMove)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      window.clearTimeout(closeTimer.current)
-      closeTimer.current = undefined
-    }
-  }, [open])
 
   if (!citation) return <span>[{n}]</span>
 
+  const show = () => {
+    window.clearTimeout(closeTimer.current)
+    setOpen(true)
+  }
+  const hide = () => {
+    closeTimer.current = window.setTimeout(() => setOpen(false), GRACE_MS)
+  }
+
   return (
-    <span
-      className="cite"
-      onMouseEnter={(e) => {
-        origin.current = { x: e.clientX, y: e.clientY }
-        setOpen(true)
-      }}
-    >
-      [{n}]
+    <span className="cite-wrap" onMouseEnter={show} onMouseLeave={hide}>
+      <span className="cite">[{n}]</span>
       {open && (
-        <span className="cite-pop" ref={card}>
+        <span className="cite-pop" onMouseEnter={show} onMouseLeave={hide}>
           <span className="cite-pop-head">
             {citation.source_title}
             {citation.heading ? ` · ${citation.heading}` : ''}

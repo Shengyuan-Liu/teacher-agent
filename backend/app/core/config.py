@@ -95,6 +95,13 @@ class Settings(BaseSettings):
     web_search_enabled: bool = False
     search_provider: Literal["tavily", "brave", "searxng"] = "tavily"
     tavily_api_key: str | None = None
+    web_search_timeout: int = 30
+    # Candidates returned to the user, and how many of those the one-shot
+    # answer (form A) actually fetches full text for. Both are hard caps.
+    web_search_top_k: int = 8
+    web_search_fetch_pages: int = 3
+    # Per-user calls to /web-search and one-shot web answers, per rolling hour.
+    web_search_rate_limit_per_hour: int = 30
 
     # A few hundred pages of OCR plus embedding can run for many minutes.
     ingest_job_timeout: int = 3600

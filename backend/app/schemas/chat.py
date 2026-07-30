@@ -19,6 +19,8 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]] | None
+    web_citations: list[dict[str, Any]]
+    used_web_search: bool
     usage: dict[str, Any] | None
     trace: list[dict[str, Any]] | None
     created_at: datetime
@@ -28,3 +30,6 @@ class MessageResponse(BaseModel):
 
 class AskRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
+    #: only True on an explicit user action; the API gates it on the deployment
+    #: flag and never turns it on itself
+    web_search: bool = False

@@ -28,12 +28,16 @@ GENERATE_PROMPT = """Write practice questions from the numbered excerpts below.
 
 {excerpts}
 
+The learner asked: {request}
+
 Produce JSON:
 {{"questions": [{{"type": "single|multi|fill|short", "difficulty": "easy|medium|hard",
 "stem": "...", "options": ["..."], "answer": ..., "explanation": "...", "source": 1}}]}}
 
 Rules:
-- Exactly {count} questions, mixing types; each answerable from its excerpt alone.
+- Honour the learner's request for how many questions and which type(s). If they
+  did not specify, produce {count} questions mixing types. Each must be
+  answerable from its excerpt alone.
 - single: 4 options, `answer` is the correct option text.
 - multi: 4-5 options, `answer` is a list of the correct option texts (2+).
 - fill: `stem` contains ____ for the blank, `answer` is the missing text, no options.
@@ -41,7 +45,7 @@ Rules:
 - `explanation` states why the answer is right, citing the excerpt's reasoning.
 - `source` is the number of the excerpt the question is grounded in.
 - Mathematics in LaTeX between $ delimiters.
-- Write in the same language as the excerpts.
+- {language}
 - Output only the JSON object."""
 
 
@@ -49,6 +53,10 @@ class QuizState(TypedDict):
     workspace_id: str
     count: int
     topic: str | None
+    #: the learner's natural-language ask and the language to write in; set when
+    #: quiz is reached through chat, empty for the legacy quiz endpoint
+    request: str
+    language: str
     sections: list[dict]
     raw: list[dict]
     questions: list[dict]
@@ -94,7 +102,13 @@ async def generate(state: QuizState) -> dict:
         + s["content"][:2500]
         for i, s in enumerate(state["sections"], 1)
     )
-    prompt = GENERATE_PROMPT.format(excerpts=excerpts, count=state["count"])
+    prompt = GENERATE_PROMPT.format(
+        excerpts=excerpts,
+        count=state["count"],
+        request=state.get("request") or "(no specific request — use your judgement)",
+        language=state.get("language")
+        or "Write the questions in the same language as the excerpts.",
+    )
     reply = await chat_model().ainvoke([HumanMessage(prompt)])
     usage.record_message("quiz_generate", reply)
     match = re.search(r"\{.*\}", reply.text, re.S)
@@ -109,8 +123,10 @@ async def validate(state: QuizState) -> dict:
         cleaned = validate_question(raw, len(state["sections"]))
         if cleaned is None:
             continue
-        section = state["sections"][cleaned.pop("source_index") - 1]
+        index = cleaned.pop("source_index")
+        section = state["sections"][index - 1]
         cleaned["source"] = {
+            "index": index,
             "chunk_id": section["chunk_id"],
             "title": section["title"],
             "heading": section["heading"],

@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, HttpUrl
 
-from app.models.source import SourceStatus, SourceType
+from app.models.source import SourceProvenance, SourceStatus, SourceType
 
 
 class UrlSourceCreate(BaseModel):
@@ -19,6 +19,9 @@ class SourceResponse(BaseModel):
     type: SourceType
     title: str
     origin: str | None
+    provenance: SourceProvenance
+    search_query: str | None
+    fetched_at: datetime | None
     status: SourceStatus
     error: str | None
     progress: float

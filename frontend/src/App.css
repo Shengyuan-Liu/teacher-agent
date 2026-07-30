@@ -459,15 +459,17 @@ button.ghost:hover {
 
 /* citation refs */
 
-.cite {
+.cite-wrap {
   position: relative;
+  white-space: nowrap;
+}
+.cite {
   color: var(--text-muted);
   cursor: help;
   font-style: normal;
-  white-space: nowrap;
 }
 
-.cite:hover {
+.cite-wrap:hover .cite {
   color: var(--text);
 }
 
@@ -768,4 +770,56 @@ select {
   margin-left: 1.5rem;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+/* Web search: kept visually distinct from the user's own material. */
+.web-badge {
+  background: #1f6feb1a;
+  color: #1f6feb;
+  border: 1px solid #1f6feb55;
+}
+.web-citations {
+  align-items: center;
+}
+.cite.web,
+.web-cite {
+  color: #1f6feb;
+  text-decoration: none;
+}
+.cite.web:hover,
+.web-cite:hover {
+  text-decoration: underline;
+}
+.web-suggest {
+  margin-top: 0.5rem;
+  background: transparent;
+  border: 1px dashed #1f6feb88;
+  color: #1f6feb;
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.web-suggest:hover:not(:disabled) {
+  background: #1f6feb14;
+}
+.web-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+.web-search-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem;
+}
+.web-candidates {
+  margin: 0.6rem 0;
+}
+.web-candidates .list-row {
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.small {
+  font-size: 0.8rem;
 }

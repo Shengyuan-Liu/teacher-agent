@@ -82,4 +82,7 @@ async def ask(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     session = await _owned_session(session_id, user, db)
-    return EventSourceResponse(stream_answer(session.id, body.message))
+    # The intent router (inside stream_answer) decides web vs local, gates it on
+    # the deployment flag, and rate-limits it. body.web_search is the explicit
+    # "search the web" suggestion click, which forces the web branch.
+    return EventSourceResponse(stream_answer(session.id, body.message, body.web_search, user.id))

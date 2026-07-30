@@ -2,7 +2,7 @@
 
 from app.models.chat import ChatSession, Message
 from app.models.chunk import Chunk, ChunkParent
-from app.models.source import Source, SourceStatus, SourceType
+from app.models.source import Source, SourceProvenance, SourceStatus, SourceType
 from app.models.study_plan import PlanStage, Question, StudyPlan
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
@@ -15,6 +15,7 @@ __all__ = [
     "PlanStage",
     "Question",
     "Source",
+    "SourceProvenance",
     "SourceStatus",
     "SourceType",
     "StudyPlan",

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
+import WebSearchPanel from '@/components/WebSearchPanel'
 import { api, type Source } from '@/lib/api'
 
 const ACTIVE = new Set(['pending', 'parsing', 'embedding'])
@@ -11,9 +12,11 @@ function StatusBadge({ status }: { status: Source['status'] }) {
 
 export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
   const fileInput = useRef<HTMLInputElement>(null)
-  const [adding, setAdding] = useState<'url' | 'github' | null>(null)
+  const [adding, setAdding] = useState<'url' | 'github' | 'web' | null>(null)
   const [location, setLocation] = useState('')
   const queryClient = useQueryClient()
+
+  const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: api.capabilities })
 
   const sources = useQuery({
     queryKey: ['sources', workspaceId],
@@ -75,8 +78,18 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
         <button className="ghost" onClick={() => setAdding(adding === 'github' ? null : 'github')}>
           + GitHub repo
         </button>
+        {capabilities.data?.web_search && (
+          <button className="ghost" onClick={() => setAdding(adding === 'web' ? null : 'web')}>
+            🌐 Web search
+          </button>
+        )}
       </div>
-      {adding && (
+      {adding === 'web' && (
+        <div style={{ marginTop: '0.6rem' }}>
+          <WebSearchPanel workspaceId={workspaceId} onIngested={refresh} />
+        </div>
+      )}
+      {(adding === 'url' || adding === 'github') && (
         <form
           className="row"
           style={{ marginTop: '0.6rem' }}
@@ -118,6 +131,11 @@ export default function SourcePanel({ workspaceId }: { workspaceId: string }) {
             <li key={s.id}>
               <div className="list-row">
                 <span className="title" style={{ flex: 1 }} title={s.title}>
+                  {s.provenance === 'web_search' && (
+                    <span className="badge web-badge" title={s.search_query ?? 'From web search'}>
+                      🌐 web
+                    </span>
+                  )}{' '}
                   {s.title}
                 </span>
                 <StatusBadge status={s.status} />

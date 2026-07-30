@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_owned_workspace
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Source, SourceStatus, SourceType, Workspace
+from app.models import Source, SourceProvenance, SourceStatus, SourceType, Workspace
 from app.models.workspace import WorkspaceStatus
 from app.rag.repo import parse_repo_url
 from app.schemas.source import GithubSourceCreate, SourceResponse, UrlSourceCreate
@@ -70,12 +71,14 @@ async def upload_source(
     return source
 
 
-async def _create_remote_source(
+async def create_remote_source(
     db: AsyncSession,
     workspace: Workspace,
     source_type: SourceType,
     origin: str,
     title: str,
+    provenance: SourceProvenance,
+    search_query: str | None = None,
 ) -> Source:
     source = Source(
         workspace_id=workspace.id,
@@ -83,6 +86,9 @@ async def _create_remote_source(
         title=title[:300],
         origin=origin,
         file_path="",
+        provenance=provenance,
+        search_query=search_query,
+        fetched_at=datetime.now(UTC) if provenance == SourceProvenance.WEB_SEARCH else None,
     )
     db.add(source)
     await db.flush()
@@ -103,7 +109,9 @@ async def add_url_source(
     seed = str(body.url)
     parts = urlsplit(seed)
     title = parts.netloc + (parts.path.rstrip("/") or "")
-    return await _create_remote_source(db, workspace, SourceType.URL, seed, title)
+    return await create_remote_source(
+        db, workspace, SourceType.URL, seed, title, SourceProvenance.USER_URL
+    )
 
 
 @router.post("/github", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
@@ -116,8 +124,13 @@ async def add_github_source(
         owner, name = parse_repo_url(str(body.repo_url))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
-    return await _create_remote_source(
-        db, workspace, SourceType.GITHUB, str(body.repo_url), f"{owner}/{name}"
+    return await create_remote_source(
+        db,
+        workspace,
+        SourceType.GITHUB,
+        str(body.repo_url),
+        f"{owner}/{name}",
+        SourceProvenance.USER_GITHUB,
     )
 
 

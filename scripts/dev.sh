@@ -13,7 +13,14 @@ LOG_DIR="$ROOT/logs/run_logs"
 detach=false
 [[ "${1:-}" == "--nohup" || "${1:-}" == "-d" ]] && detach=true
 
-port_busy() { ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN; }
+# ss on Linux, lsof on macOS which has no ss.
+port_busy() {
+  if command -v ss >/dev/null; then
+    ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
+  else
+    lsof -ti "tcp:$1" -s TCP:LISTEN >/dev/null 2>&1
+  fi
+}
 
 for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
   if port_busy "$port"; then
@@ -31,12 +38,15 @@ frontend_cmd=(pnpm dev)
 if $detach; then
   stamp="$(date +%Y-%m-%d_%H-%M-%S)"
   mkdir -p "$LOG_DIR"
-  # setsid so the services survive this shell closing.
-  (cd "$ROOT/backend" && setsid nohup "${backend_cmd[@]}" \
+  # setsid gives each service its own session so it survives this shell closing.
+  # macOS has no setsid; a nohup'd child in a subshell that exits reparents to
+  # init, which achieves the same thing.
+  command -v setsid >/dev/null && detacher=setsid || detacher=
+  (cd "$ROOT/backend" && $detacher nohup "${backend_cmd[@]}" \
      > "$LOG_DIR/$stamp-backend.log" 2>&1 < /dev/null &)
-  (cd "$ROOT/backend" && setsid nohup "${worker_cmd[@]}" \
+  (cd "$ROOT/backend" && $detacher nohup "${worker_cmd[@]}" \
      > "$LOG_DIR/$stamp-worker.log" 2>&1 < /dev/null &)
-  (cd "$ROOT/frontend" && setsid nohup "${frontend_cmd[@]}" \
+  (cd "$ROOT/frontend" && $detacher nohup "${frontend_cmd[@]}" \
      > "$LOG_DIR/$stamp-frontend.log" 2>&1 < /dev/null &)
 
   echo "Started in the background. Logs:"

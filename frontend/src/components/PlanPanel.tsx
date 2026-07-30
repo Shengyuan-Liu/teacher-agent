@@ -1,16 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import ActivityTrace, { type TraceStep } from '@/components/ActivityTrace'
 import MarkdownBlock from '@/components/MarkdownBlock'
-import { api, streamAgent } from '@/lib/api'
+import { api } from '@/lib/api'
 
+/**
+ * Read-only view of the workspace's study plan as a to-do list. The plan is
+ * created and edited in chat ("帮我制定学习计划" / "把第二阶段改成…"); here the learner
+ * only ticks stages off, and that progress is what the planner reads next time.
+ */
 export default function PlanPanel({ workspaceId }: { workspaceId: string }) {
-  const [goal, setGoal] = useState('')
-  const [dailyMinutes, setDailyMinutes] = useState(60)
-  const [deadline, setDeadline] = useState('')
-  const [steps, setSteps] = useState<TraceStep[]>([])
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
   const queryClient = useQueryClient()
 
   const plans = useQuery({
@@ -19,107 +16,33 @@ export default function PlanPanel({ workspaceId }: { workspaceId: string }) {
   })
 
   const toggleStage = useMutation({
-    mutationFn: ({ planId, stageId, status }: { planId: string; stageId: string; status: 'pending' | 'done' }) =>
-      api.updateStage(planId, stageId, status),
+    mutationFn: ({
+      planId,
+      stageId,
+      status,
+    }: {
+      planId: string
+      stageId: string
+      status: 'pending' | 'done'
+    }) => api.updateStage(planId, stageId, status),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plans', workspaceId] }),
   })
 
-  const removePlan = useMutation({
-    mutationFn: (planId: string) => api.deletePlan(planId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plans', workspaceId] }),
-  })
-
-  async function generate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!goal.trim() || generating) return
-    setError('')
-    setSteps([])
-    setGenerating(true)
-    try {
-      await streamAgent(
-        `/workspaces/${workspaceId}/plans/stream`,
-        { goal: goal.trim(), daily_minutes: dailyMinutes, deadline: deadline || null },
-        {
-          onStage: (ev) =>
-            setSteps((s) => [
-              ...s,
-              { key: ev.stage, agent: ev.agent, label: ev.label, result: null, done: false },
-            ]),
-          onStageResult: (ev) =>
-            setSteps((s) =>
-              s.map((step) =>
-                step.key === ev.stage ? { ...step, result: ev.result, done: true } : step,
-              ),
-            ),
-          onUsage: () => {},
-          onDone: () => {
-            setGoal('')
-            queryClient.invalidateQueries({ queryKey: ['plans', workspaceId] })
-          },
-          onError: setError,
-        },
-      )
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setGenerating(false)
-      setSteps((s) => s.map((step) => ({ ...step, done: true })))
-    }
-  }
+  if (plans.isPending) return <p className="muted">Loading…</p>
+  if (!plans.data?.length)
+    return (
+      <div className="empty">
+        No study plan yet. Ask in chat, e.g. “帮我制定一个学习计划” — then tick stages off here as
+        you go.
+      </div>
+    )
 
   return (
     <section>
-      <form onSubmit={generate} className="plan-form">
-        <input
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="Your goal, e.g. pass the optimisation exam / understand this codebase"
-        />
-        <div className="row" style={{ marginTop: '0.5rem' }}>
-          <label className="inline-label">
-            min/day
-            <input
-              type="number"
-              min={10}
-              max={720}
-              value={dailyMinutes}
-              onChange={(e) => setDailyMinutes(Number(e.target.value))}
-              style={{ width: '6rem' }}
-            />
-          </label>
-          <label className="inline-label">
-            deadline
-            <input
-              type="date"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              style={{ width: '11rem' }}
-            />
-          </label>
-          <button type="submit" disabled={generating || !goal.trim()}>
-            {generating ? 'Planning…' : 'Generate plan'}
-          </button>
-        </div>
-      </form>
-
-      {steps.length > 0 && <ActivityTrace steps={steps} />}
-      {error && <p className="error">{error}</p>}
-
-      {plans.data?.length === 0 && !generating && (
-        <div className="empty">No plan yet. State your goal above and generate one.</div>
-      )}
-
-      {plans.data?.map((plan) => (
+      {plans.data.map((plan) => (
         <div key={plan.id} className="plan">
           <div className="plan-head">
             <strong>{plan.goal}</strong>
-            <span className="muted">
-              {plan.daily_minutes} min/day
-              {plan.deadline ? ` · until ${plan.deadline}` : ''} ·{' '}
-              <button className="link-button danger" onClick={() => removePlan.mutate(plan.id)}>
-                delete
-              </button>
-            </span>
           </div>
           {plan.stages.map((stage) => (
             <div key={stage.id} className={`stage ${stage.status}`}>

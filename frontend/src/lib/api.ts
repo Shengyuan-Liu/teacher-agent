@@ -93,12 +93,17 @@ export interface Workspace {
   created_at: string
 }
 
+export type Provenance = 'user_upload' | 'user_url' | 'user_github' | 'web_search'
+
 export interface Source {
   id: string
   type: 'pdf' | 'md' | 'docx' | 'pptx' | 'xlsx' | 'url' | 'github'
   title: string
   status: 'pending' | 'parsing' | 'embedding' | 'ready' | 'failed'
   origin: string | null
+  provenance: Provenance
+  search_query: string | null
+  fetched_at: string | null
   error: string | null
   progress: number
   progress_detail: string | null
@@ -134,14 +139,45 @@ export interface Usage {
   calls: UsageCall[]
 }
 
+export interface WebCitation {
+  n: number
+  url: string
+  title: string
+  domain: string
+  fetched_at: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations: Citation[] | null
+  web_citations: WebCitation[]
+  used_web_search: boolean
   usage: Usage | null
   trace: TraceRecord[] | null
   created_at: string
+}
+
+export interface Capabilities {
+  web_search: boolean
+  llm_provider: string
+  embedding_provider: string
+  limits: Record<string, number>
+}
+
+export interface WebSearchCandidate {
+  url: string
+  title: string
+  snippet: string
+  domain: string
+  recommended: boolean
+  reason: string | null
+}
+
+export interface WebSearchResult {
+  queries_used: string[]
+  results: WebSearchCandidate[]
 }
 
 export interface TraceRecord {
@@ -251,6 +287,19 @@ export const api = {
     request<Question[]>(`/workspaces/${workspaceId}/questions`),
   deleteQuestion: (workspaceId: string, questionId: string) =>
     request<void>(`/workspaces/${workspaceId}/questions/${questionId}`, { method: 'DELETE' }),
+
+  capabilities: () => request<Capabilities>('/capabilities'),
+  webSearch: (workspaceId: string, body: { query?: string; from_question?: string }) =>
+    json<WebSearchResult>(`/workspaces/${workspaceId}/web-search`, 'POST', body),
+  webSearchIngest: (
+    workspaceId: string,
+    results: { url: string; title?: string }[],
+    query?: string,
+  ) =>
+    json<{ source_ids: string[] }>(`/workspaces/${workspaceId}/web-search/ingest`, 'POST', {
+      results,
+      query,
+    }),
 }
 
 export interface StageEvent {
@@ -272,9 +321,16 @@ export interface AgentStreamHandlers {
   onError: (message: string) => void
 }
 
+export interface WebSearchSuggestion {
+  reason: string
+  suggested_query: string
+}
+
 export interface StreamHandlers extends AgentStreamHandlers {
   onCitations: (citations: Citation[]) => void
   onToken: (delta: string) => void
+  onWebCitation: (citation: WebCitation) => void
+  onWebSearchSuggested: (suggestion: WebSearchSuggestion) => void
 }
 
 /** POST an SSE endpoint and dispatch its events; shared by every agent run. */
@@ -322,12 +378,13 @@ export async function streamAnswer(
   sessionId: string,
   message: string,
   handlers: StreamHandlers,
+  webSearch = false,
 ): Promise<void> {
   const open = () =>
     fetch(`${BASE_URL}/chat/sessions/${sessionId}/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, web_search: webSearch }),
     })
 
   let res = await open()
@@ -351,6 +408,8 @@ export async function streamAnswer(
       if (event === 'stage') handlers.onStage(JSON.parse(data))
       else if (event === 'citations') handlers.onCitations(JSON.parse(data))
       else if (event === 'token') handlers.onToken(JSON.parse(data).delta)
+      else if (event === 'web_citation') handlers.onWebCitation(JSON.parse(data))
+      else if (event === 'web_search_suggested') handlers.onWebSearchSuggested(JSON.parse(data))
       else if (event === 'usage') handlers.onUsage(JSON.parse(data))
       else if (event === 'done') handlers.onDone(JSON.parse(data).grounded)
       else if (event === 'error') handlers.onError(JSON.parse(data).message)

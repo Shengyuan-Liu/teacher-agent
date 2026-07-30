@@ -187,6 +187,45 @@ async def crawl(
     return pages
 
 
+MAX_REDIRECTS = 5
+
+
+async def fetch_page(url: str) -> Page:
+    """Fetch one arbitrary page's main content as Markdown.
+
+    Web-search results are arbitrary URLs, not a same-site subtree, so this
+    fetches a single page rather than crawling. Redirects are followed by hand
+    and every hop is re-validated against the SSRF guard — a page that 302s to
+    169.254.169.254 must be blocked before the connection, which
+    `follow_redirects=True` would not do.
+    """
+    url = normalise(url)
+    async with httpx.AsyncClient(
+        timeout=PAGE_TIMEOUT,
+        headers={"User-Agent": "TeacherAgent/0.1 (learning assistant; contact: local)"},
+    ) as client:
+        for _ in range(MAX_REDIRECTS):
+            await asyncio.to_thread(_assert_public_host, url)
+            response = await client.get(url)
+            if response.is_redirect and "location" in response.headers:
+                url = normalise(urljoin(url, response.headers["location"]))
+                continue
+            break
+        else:
+            raise ValueError(f"Too many redirects fetching {url}")
+
+    response.raise_for_status()
+    if "text/html" not in response.headers.get("content-type", ""):
+        raise ValueError(f"Not an HTML page: {url}")
+    html = response.text
+    markdown = trafilatura.extract(
+        html, output_format="markdown", include_tables=True, include_links=False
+    )
+    if not markdown or not markdown.strip():
+        raise ValueError(f"No readable content at {url}")
+    return Page(url=url, title=page_title(html, url), markdown=demote_headings(markdown.strip()))
+
+
 def pages_to_markdown(pages: list[Page]) -> str:
     sections = [f"# {p.title}\n\nSource: {p.url}\n\n{p.markdown}" for p in pages]
     return "\n\n".join(sections)

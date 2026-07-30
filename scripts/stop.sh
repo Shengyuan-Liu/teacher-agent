@@ -20,11 +20,13 @@ own_tree() {
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
   done
 }
-readarray -t PROTECTED < <(own_tree)
+# Word splitting on numeric PIDs is safe, and unlike `readarray` it works on
+# the bash 3.2 that ships with macOS.
+PROTECTED=( $(own_tree) )
 
 is_protected() {
   local pid=$1
-  for p in "${PROTECTED[@]}"; do [[ "$pid" == "$p" ]] && return 0; done
+  for p in ${PROTECTED[@]+"${PROTECTED[@]}"}; do [[ "$pid" == "$p" ]] && return 0; done
   return 1
 }
 
@@ -51,21 +53,23 @@ terminate() {
 }
 
 pids_on_port() {
-  # ss shows the owner of a listening socket; fall back to lsof where it does not.
-  ss -ltnp "sport = :$1" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u
+  # ss shows the owner of a listening socket on Linux; macOS has only lsof.
+  # `grep -oE` stays portable to BSD grep, which lacks -P.
+  command -v ss >/dev/null &&
+    ss -ltnp "sport = :$1" 2>/dev/null | grep -oE 'pid=[0-9]+' | grep -oE '[0-9]+' | sort -u
   command -v lsof >/dev/null && lsof -ti "tcp:$1" -s TCP:LISTEN 2>/dev/null
 }
 
 echo "Stopping dev services in $ROOT"
-readarray -t backend < <(pids_on_port "$BACKEND_PORT")
-terminate backend "${backend[@]}"
+backend=( $(pids_on_port "$BACKEND_PORT") )
+terminate backend ${backend[@]+"${backend[@]}"}
 
-readarray -t frontend < <(pids_on_port "$FRONTEND_PORT")
-terminate frontend "${frontend[@]}"
+frontend=( $(pids_on_port "$FRONTEND_PORT") )
+terminate frontend ${frontend[@]+"${frontend[@]}"}
 
 # The worker holds no port, so match its command line.
-readarray -t worker < <(pgrep -f 'arq app\.workers' 2>/dev/null)
-terminate worker "${worker[@]}"
+worker=( $(pgrep -f 'arq app\.workers' 2>/dev/null) )
+terminate worker ${worker[@]+"${worker[@]}"}
 
 if $stop_all_containers; then
   echo "Stopping containers"

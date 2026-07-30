@@ -39,6 +39,66 @@ Rules:
 - Output only the JSON object."""
 
 
+CHAT_PLAN_PROMPT = """You are helping a learner build and refine their study plan \
+through conversation.
+
+Topic outline of the material (with prerequisite ids):
+{outline}
+
+Current plan (empty if there is none yet):
+{current}
+
+{convo}The learner just said: {request}
+
+Return the FULL updated plan as JSON:
+{{"stages": [{{"title": "...", "description": "...", "topics": ["topic title", ...],
+"activities": ["read", "quiz", "chat"], "estimated_minutes": 120}}]}}
+
+Rules:
+- If there is no current plan, create one from the learner's request and the outline.
+- If there is a current plan, actually apply the learner's change and return the
+  COMPLETE updated list of stages. Fully honour what they ask — restructure,
+  merge, split, reorder, add or remove stages as needed. Do not just return the
+  existing plan unchanged.
+- The learner's completed stages are shown for context (so you can build on their
+  progress); this is not a reason to leave the plan as-is when they asked to change it.
+- Do not put status words like "已完成"/"done" into the titles; titles name the topic only.
+- Default to 3-8 stages, but if the learner asks for a specific number of stages,
+  produce exactly that many. Respect the prerequisite order of the outline.
+- `description` says what to do and what "done" looks like, in 2-3 sentences.
+- `activities` picks from: read, chat, quiz.
+- Write in the same language as the learner's request.
+- Output only the JSON object."""
+
+
+async def revise_plan(
+    workspace_id: uuid.UUID,
+    request: str,
+    current: str,
+    history: list[tuple[str, str]] | None = None,
+) -> list[dict]:
+    """Create or edit a study plan from a natural-language request. `current` is
+    the existing plan rendered for the prompt (empty when there is none); recent
+    conversation lets follow-up edits resolve references to what was just said."""
+    outline = await ensure_outline(workspace_id)
+    topics = json.dumps(outline["topics"], ensure_ascii=False, indent=1)
+    convo = ""
+    if history:
+        recent = "\n".join(f"{role}: {content[:300]}" for role, content in history[-4:])
+        convo = f"Recent conversation:\n{recent}\n\n"
+    reply = await chat_model().ainvoke(
+        [
+            HumanMessage(
+                CHAT_PLAN_PROMPT.format(
+                    outline=topics, current=current or "(none)", convo=convo, request=request
+                )
+            )
+        ]
+    )
+    usage.record_message("plan_revise", reply)
+    return parse_stages(reply.text)
+
+
 class PlanState(TypedDict):
     workspace_id: str
     goal: str
