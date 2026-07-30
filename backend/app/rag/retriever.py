@@ -35,6 +35,8 @@ class RetrievedChunk:
     source_origin: str | None = None
     source_position: int | None = None
     source_url: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
 
 
 @dataclass
@@ -122,6 +124,8 @@ def _as_chunks(
             source_origin=source.origin,
             source_position=parent.position,
             source_url=_page_url(parent.content) or source.origin,
+            page_start=parent.page_start,
+            page_end=parent.page_end,
         )
         for (parent, source), score in zip(ordered, scores, strict=False)
     ]

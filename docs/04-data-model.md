@@ -63,6 +63,7 @@ erDiagram
 - `id`, `source_id`, `workspace_id`
 - `content`：切块文本
 - `position`：定位信息（如 PDF 的页码、Word/Markdown 的标题路径、代码文件的起止行号+函数名、网页的锚点）
+- PDF parent chunk 额外保存 `page_start/page_end`（一页内切块时二者相同），引用接口直接返回真实页码；`position` 继续表示资料内 chunk 顺序。
 - `embedding_ref`：指向向量库中的向量 ID（若向量库与关系库分离存储）
 - `chunk_type`（`text|table|code|heading_summary`）
 

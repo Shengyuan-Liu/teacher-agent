@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [master, phase-3]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: teacher
+          POSTGRES_PASSWORD: teacher_dev_pw
+          POSTGRES_DB: teacher_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U teacher -d teacher_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      ENVIRONMENT: test
+      DEBUG: "false"
+      LLM_PROVIDER: openai
+      EMBEDDING_PROVIDER: openai
+      OPENAI_API_KEY: test-key
+      RERANKER: none
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --extra ingestion --extra openai
+      - run: PGPASSWORD=teacher_dev_pw psql -h localhost -U teacher -d teacher_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      - run: uv run alembic upgrade head
+      - run: uv run ruff check app tests
+      - run: uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test -- --run
+      - run: pnpm lint
+      - run: pnpm build

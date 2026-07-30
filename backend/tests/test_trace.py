@@ -35,6 +35,8 @@ def test_trace_value_keeps_complete_retrieval_output():
                 "source_origin": None,
                 "source_position": None,
                 "source_url": None,
+                "page_start": None,
+                "page_end": None,
             }
         ]
     }

@@ -2,6 +2,7 @@ import pypdfium2 as pdfium
 from markitdown import MarkItDown
 
 from app.models.source import SourceType
+from app.rag.pdf_convert import join_pdf_pages
 
 
 def extract_text(path: str, source_type: SourceType) -> str:
@@ -22,4 +23,4 @@ def _extract_pdf(path: str) -> str:
         pages = [page.get_textpage().get_text_range() for page in document]
     finally:
         document.close()
-    return "\n\n".join(page.strip() for page in pages if page.strip())
+    return join_pdf_pages(pages)

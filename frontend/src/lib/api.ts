@@ -123,6 +123,8 @@ export interface Citation {
   source_origin?: string | null
   source_url?: string | null
   source_position?: number | null
+  page_start?: number | null
+  page_end?: number | null
 }
 
 export interface UsageCall {

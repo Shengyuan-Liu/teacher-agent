@@ -32,6 +32,16 @@ Rules:
   the page in a code fence."""
 
 PAGE_SEPARATOR = "\n\n"
+PAGE_MARKER = "<!-- teacher-agent-page:{page} -->"
+
+
+def join_pdf_pages(pages: list[str]) -> str:
+    """Keep the original one-based PDF page number in the Markdown stream."""
+    return PAGE_SEPARATOR.join(
+        f"{PAGE_MARKER.format(page=index)}\n{content.strip()}"
+        for index, content in enumerate(pages, 1)
+        if content.strip()
+    )
 
 
 @dataclass
@@ -54,7 +64,7 @@ class TextConverter:
             pages = [page.get_textpage().get_text_range() for page in document]
         finally:
             document.close()
-        return ConvertedDocument(PAGE_SEPARATOR.join(p.strip() for p in pages if p.strip()))
+        return ConvertedDocument(join_pdf_pages(pages))
 
 
 class MistralOcrConverter:
@@ -84,13 +94,12 @@ class MistralOcrConverter:
 
         markdown, images = [], {}
         for page in payload.get("pages", []):
-            if page.get("markdown", "").strip():
-                markdown.append(page["markdown"].strip())
+            markdown.append(page.get("markdown", ""))
             for image in page.get("images", []):
                 encoded_image = image.get("image_base64")
                 if image.get("id") and encoded_image:
                     images[image["id"]] = base64.b64decode(encoded_image.split(",")[-1])
-        return ConvertedDocument(PAGE_SEPARATOR.join(markdown), images)
+        return ConvertedDocument(join_pdf_pages(markdown), images)
 
 
 class GeminiConverter:
@@ -102,7 +111,7 @@ class GeminiConverter:
         renders = await asyncio.to_thread(_render_pages, path)
         async with httpx.AsyncClient(timeout=settings.pdf_convert_timeout) as client:
             pages = [await self._page(client, image) for image in renders]
-        return ConvertedDocument(PAGE_SEPARATOR.join(p.strip() for p in pages if p.strip()))
+        return ConvertedDocument(join_pdf_pages(pages))
 
     async def _page(self, client: httpx.AsyncClient, image: bytes) -> str:
         response = await client.post(

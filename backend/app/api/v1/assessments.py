@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -92,9 +93,14 @@ def _assessment_payload(
 
 
 async def _owned_assessment(
-    db: AsyncSession, assessment_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.UUID
+    db: AsyncSession,
+    assessment_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> Assessment:
-    row = await db.scalar(
+    query = (
         select(Assessment)
         .options(selectinload(Assessment.questions), selectinload(Assessment.answers))
         .where(
@@ -102,7 +108,11 @@ async def _owned_assessment(
             Assessment.workspace_id == workspace_id,
             Assessment.user_id == user_id,
         )
+        .execution_options(populate_existing=True)
     )
+    if for_update:
+        query = query.with_for_update()
+    row = await db.scalar(query)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
     return row
@@ -180,18 +190,47 @@ async def submit_assessment(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    assessment = await _owned_assessment(db, assessment_id, workspace.id, user.id)
+    workspace_id_value = workspace.id
+    user_id_value = user.id
+    assessment = await _owned_assessment(
+        db, assessment_id, workspace_id_value, user_id_value
+    )
     if assessment.status != "in_progress":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Assessment has already been submitted")
+        return _assessment_payload(assessment)
+
+    # Copy immutable grading inputs, then release the read transaction before
+    # potentially slow LLM grading. A row lock is acquired only for the final
+    # atomic write, so concurrent submissions cannot update mastery twice.
+    grading_inputs = [
+        {
+            "id": item.id,
+            "question_id": item.question_id,
+            "snapshot": item.question_snapshot,
+            "points": item.points,
+            "response": body.answers.get(str(item.id)),
+        }
+        for item in assessment.questions
+    ]
+    await db.rollback()
+    grades = await asyncio.gather(
+        *(grade_response(item["snapshot"], item["response"]) for item in grading_inputs)
+    )
+
+    assessment = await _owned_assessment(
+        db, assessment_id, workspace_id_value, user_id_value, for_update=True
+    )
+    if assessment.status != "in_progress":
+        return _assessment_payload(assessment)
 
     now = datetime.now(UTC)
     expired = now > assessment.started_at + timedelta(minutes=assessment.time_limit_minutes)
     answer_rows = []
     earned = 0.0
     weak_topics: set[str] = set()
-    for item in assessment.questions:
-        response = body.answers.get(str(item.id))
-        grade = await grade_response(item.question_snapshot, response)
+    question_by_id = {item.id: item for item in assessment.questions}
+    for grading_input, grade in zip(grading_inputs, grades, strict=True):
+        item = question_by_id[grading_input["id"]]
+        response = grading_input["response"]
         answer = AssessmentAnswer(
             assessment_id=assessment.id,
             assessment_question_id=item.id,
@@ -208,18 +247,18 @@ async def submit_assessment(
         topic = topic_from_snapshot(item.question_snapshot)
         if not grade.correct:
             weak_topics.add(topic)
-        await record_mastery(db, workspace.id, user.id, topic, grade.fraction)
+        await record_mastery(db, workspace_id_value, user_id_value, topic, grade.fraction)
         await update_review_item(
             db,
-            workspace.id,
-            user.id,
+            workspace_id_value,
+            user_id_value,
             item.question_id,
             item.question_snapshot,
             grade.correct,
             now=now,
         )
 
-    await adjust_plan_for_weak_topics(db, workspace.id, user.id, weak_topics)
+    await adjust_plan_for_weak_topics(db, workspace_id_value, user_id_value, weak_topics)
 
     assessment.status = "timed_out" if expired else "submitted"
     assessment.submitted_at = now

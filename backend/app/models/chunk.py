@@ -28,6 +28,8 @@ class ChunkParent(UUIDPrimaryKeyMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     #: [{"id": "img-0.jpeg", "path": "storage/..."}] for figures in this section
     images: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list, nullable=False)
+    page_start: Mapped[int | None] = mapped_column(Integer)
+    page_end: Mapped[int | None] = mapped_column(Integer)
 
     source: Mapped["Source"] = relationship(back_populates="chunk_parents")
     children: Mapped[list["Chunk"]] = relationship(

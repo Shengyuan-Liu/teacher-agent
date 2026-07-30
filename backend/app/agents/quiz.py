@@ -94,6 +94,8 @@ async def gather(state: QuizState) -> dict:
                 "source_origin": h.source_origin,
                 "source_url": h.source_url,
                 "source_position": h.source_position,
+                "page_start": h.page_start,
+                "page_end": h.page_end,
             }
             for h in hits
         ]
@@ -204,6 +206,8 @@ def _clean_candidates(raw_questions: list[dict], sections: list[dict]) -> list[d
             "source_origin": section.get("source_origin"),
             "source_url": section.get("source_url"),
             "source_position": section.get("source_position"),
+            "page_start": section.get("page_start"),
+            "page_end": section.get("page_end"),
         }
         candidates.append(cleaned)
     return deduplicate_questions(candidates)

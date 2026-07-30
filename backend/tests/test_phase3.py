@@ -1,14 +1,72 @@
+import asyncio
 import uuid
 
 import pytest
 from httpx import AsyncClient
 
 from app.agents.explanation import build_knowledge_graph
-from app.agents.router import IntentDecision
+from app.agents.router import AgentTask, IntentDecision
 from app.core.database import AsyncSessionLocal
 from app.models import PlanStage, Question, StudyPlan, Workspace
 from app.services.assessment import grade_objective, parse_short_grade
 from app.services.mastery import next_review_schedule
+
+
+class _SynthesisReply:
+    text = "Poisson 的身份来自网页 [1]；教材记录的相关定理来自本地资料 [2]。"
+    usage_metadata = None
+    response_metadata: dict = {}
+
+
+class _SynthesisModel:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.prompt = ""
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        self.prompt = "\n".join(str(message.content) for message in messages)
+        return _SynthesisReply()
+
+
+async def _web_context(_state):
+    return {
+        "web_query": "Who was Siméon Denis Poisson?",
+        "web_results": [
+            {
+                "n": 1,
+                "url": "https://example.com/poisson",
+                "title": "Poisson biography",
+                "markdown": "Poisson was a French mathematician.",
+            }
+        ],
+        "web_citations": [
+            {
+                "n": 1,
+                "url": "https://example.com/poisson",
+                "title": "Poisson biography",
+                "domain": "example.com",
+                "fetched_at": "2026-07-30T00:00:00Z",
+            }
+        ],
+    }
+
+
+async def _rag_context(_state):
+    from app.rag.retriever import RetrievedChunk
+
+    return {
+        "context": [
+            RetrievedChunk(
+                chunk_id="chunk-1",
+                source_id="source-1",
+                source_title="Probability textbook",
+                heading="Poisson theorems",
+                content="The textbook attributes the Poisson limit theorem to Poisson.",
+                score=0.9,
+            )
+        ]
+    }
 
 
 class TestAssessmentGrading:
@@ -124,11 +182,13 @@ async def test_formal_test_updates_reviews_and_mastery(auth_client: AsyncClient)
     answers = {}
     for question in assessment["questions"]:
         answers[question["id"]] = "Identity" if question["type"] == "single" else "Poisson process"
-    submitted = await auth_client.post(
-        f"/workspaces/{workspace['id']}/assessments/{assessment['id']}/submit",
-        json={"answers": answers},
+    submit_path = f"/workspaces/{workspace['id']}/assessments/{assessment['id']}/submit"
+    submitted, duplicate = await asyncio.gather(
+        auth_client.post(submit_path, json={"answers": answers}),
+        auth_client.post(submit_path, json={"answers": answers}),
     )
     assert submitted.status_code == 200
+    assert duplicate.status_code == 200
     result = submitted.json()
     assert result["status"] == "submitted"
     assert result["score"] == 1.0
@@ -136,6 +196,7 @@ async def test_formal_test_updates_reviews_and_mastery(auth_client: AsyncClient)
 
     mastery = (await auth_client.get(f"/workspaces/{workspace['id']}/mastery")).json()
     assert {item["topic"] for item in mastery} == {"Monoids", "Markov chains"}
+    assert all(item["attempts"] == 1 for item in mastery)
 
     plans = (await auth_client.get(f"/workspaces/{workspace['id']}/plans")).json()
     assert plans[0]["stages"][0]["title"].startswith("Targeted review: Markov chains")
@@ -206,4 +267,56 @@ async def test_chat_choice_bypasses_router_model(auth_client: AsyncClient, monke
     assert '"type": "mastery"' in response.text
     history = (await auth_client.get(f"/chat/sessions/{session['id']}/messages")).json()
     assert history[-1]["artifacts"] == {"type": "mastery", "items": []}
+    await auth_client.delete(f"/workspaces/{workspace['id']}")
+
+
+@pytest.mark.asyncio
+async def test_one_chat_query_runs_web_and_rag_agents(auth_client: AsyncClient, monkeypatch):
+    from app.services import chat_stream
+
+    async def multi_plan(*_args, **_kwargs):
+        return IntentDecision(
+            "web",
+            0.97,
+            reason="request explicitly needs web and textbook evidence",
+            tasks=(
+                AgentTask("web", "Who was Siméon Denis Poisson?"),
+                AgentTask("qa", "Which textbook theorems are attributed to Poisson?"),
+            ),
+        )
+
+    async def within_limit(*_args, **_kwargs):
+        return False
+
+    answer_model = _SynthesisModel()
+    monkeypatch.setattr(chat_stream, "route_intent", multi_plan)
+    monkeypatch.setattr(chat_stream, "collect_web_context", _web_context)
+    monkeypatch.setattr(chat_stream, "collect_rag_context", _rag_context)
+    monkeypatch.setattr(chat_stream, "chat_model", lambda *_: answer_model)
+    monkeypatch.setattr(chat_stream, "over_rate_limit", within_limit)
+    monkeypatch.setattr(chat_stream.settings, "web_search_enabled", True)
+
+    workspace = (await auth_client.post("/workspaces", json={"name": "Multi agent"})).json()
+    session = (
+        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
+    ).json()
+    response = await auth_client.post(
+        f"/chat/sessions/{session['id']}/stream",
+        json={
+            "message": "上网搜一下 Poisson 是谁，然后看看他在这个教材里做出了哪些定理"
+        },
+    )
+
+    assert response.status_code == 200
+    assert '"agents": ["web", "qa"]' in response.text
+    history = (await auth_client.get(f"/chat/sessions/{session['id']}/messages")).json()
+    answer = history[-1]
+    assert answer["used_web_search"] is True
+    assert [item["n"] for item in answer["web_citations"]] == [1]
+    assert [item["n"] for item in answer["citations"]] == [2]
+    assert {item["agent"] for item in answer["trace"]} >= {"router", "web", "qa", "answer"}
+    assert answer["trace"][-1]["model"] == "gpt-5.6-terra"
+    assert answer_model.calls == 1
+    assert "Poisson was a French mathematician" in answer_model.prompt
+    assert "Poisson limit theorem" in answer_model.prompt
     await auth_client.delete(f"/workspaces/{workspace['id']}")

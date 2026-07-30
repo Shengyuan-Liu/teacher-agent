@@ -27,6 +27,40 @@ INTENTS: tuple[Intent, ...] = (
     "explain",
 )
 ROUTER_CONFIDENCE_THRESHOLD = 0.68
+WEB_REQUEST_PATTERNS = (
+    re.compile(r"(?:上网|联网|互联网|网上|网页|网络).{0,10}(?:查|搜|找|检索)"),
+    re.compile(r"(?:查|搜|找|检索).{0,10}(?:互联网|网上|网页|网络)"),
+    re.compile(r"\b(?:search|browse|look up|google).{0,20}\b(?:web|internet|online)\b", re.I),
+    re.compile(r"\b(?:web|internet|online).{0,20}\b(?:search|browse|look up)\b", re.I),
+    re.compile(r"\bgoogle\s+(?:it|this|that)\b", re.I),
+)
+
+
+def explicit_web_request(question: str) -> bool:
+    """Code-level consent gate: a Router decision cannot itself authorize web I/O."""
+    return any(pattern.search(question) for pattern in WEB_REQUEST_PATTERNS)
+
+
+def filter_authorized_tasks(
+    tasks: tuple["AgentTask", ...],
+    question: str,
+    *,
+    web_search_enabled: bool,
+    explicit_web_action: bool = False,
+) -> tuple["AgentTask", ...]:
+    """Remove Web tasks unless configuration and user consent both allow I/O."""
+    web_authorized = explicit_web_action or explicit_web_request(question)
+    return tuple(
+        task
+        for task in tasks
+        if task.agent != "web" or (web_search_enabled and web_authorized)
+    )
+
+
+@dataclass(frozen=True)
+class AgentTask:
+    agent: Intent
+    query: str
 
 
 @dataclass(frozen=True)
@@ -35,10 +69,13 @@ class IntentDecision:
     confidence: float
     alternatives: tuple[Intent, ...] = ()
     reason: str = ""
+    tasks: tuple[AgentTask, ...] = ()
 
     @property
     def needs_clarification(self) -> bool:
-        return self.intent is None or self.confidence < ROUTER_CONFIDENCE_THRESHOLD
+        return (
+            self.intent is None and not self.tasks
+        ) or self.confidence < ROUTER_CONFIDENCE_THRESHOLD
 
 
 INTENT_OPTIONS: dict[Intent, dict[str, str]] = {
@@ -55,8 +92,10 @@ INTENT_OPTIONS: dict[Intent, dict[str, str]] = {
 CLASSIFY_PROMPT = """{context}The user's latest message is:
 "{question}"
 
-Classify what the learner wants to do NOW. Return JSON only:
-{{"intent":"qa|web|quiz|test|review|progress|plan|explain","confidence":0.0,
+Build the smallest agent plan that fulfils what the learner wants NOW. Return JSON only:
+{{"intent":"primary intent","confidence":0.0,
+  "tasks":[{{"agent":"qa|web|quiz|test|review|progress|plan|explain",
+             "query":"standalone subtask for that agent"}}],
   "alternatives":["..."],"reason":"brief reason"}}
 
 - web: the latest message explicitly asks to go online/search the internet. Never infer web.
@@ -68,8 +107,17 @@ Classify what the learner wants to do NOW. Return JSON only:
 - explain: a systematic, detailed, step-by-step lesson or knowledge map.
 - qa: a normal question answered from the learner's material.
 
+Use one task for a simple request. Use multiple tasks when the request explicitly
+needs different sources or capabilities. In particular, split a request that asks
+to search the internet AND inspect the learner's material into a focused `web` task
+and a focused `qa` task. Rewrite every task query so it is independently meaningful
+and resolves pronouns from the original request. Do not collapse such a request into
+only `web` or only `qa`. Multi-task knowledge gathering currently supports `web` and
+`qa`; keep action intents such as quiz/test/plan as a single task.
+
 Use recent conversation only to understand follow-ups. When multiple actions
-are plausible, lower confidence below 0.68 and list the best 2-3 alternatives.
+are alternative interpretations rather than requested subtasks, lower confidence
+below 0.68 and list the best 2-3 alternatives instead of running all of them.
 Do not invent ambiguity for clear requests."""
 
 
@@ -94,6 +142,19 @@ def parse_decision(text: str) -> IntentDecision:
         try:
             payload = json.loads(match.group(0))
             intent = _valid_intent(payload.get("intent"))
+            tasks = tuple(
+                AgentTask(agent, query[:1000])
+                for item in payload.get("tasks", [])[:4]
+                if isinstance(item, dict)
+                and (agent := _valid_intent(item.get("agent"))) is not None
+                and (query := str(item.get("query") or "").strip())
+            )
+            # Composite execution currently combines knowledge-gathering agents.
+            # Action agents retain their dedicated transactional flows.
+            if len(tasks) > 1 and any(task.agent not in ("qa", "web") for task in tasks):
+                tasks = ()
+            if intent is None and tasks:
+                intent = tasks[0].agent
             confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.0))))
             alternatives = tuple(
                 alternative
@@ -105,6 +166,7 @@ def parse_decision(text: str) -> IntentDecision:
                 confidence=confidence,
                 alternatives=alternatives,
                 reason=str(payload.get("reason") or ""),
+                tasks=tasks,
             )
         except (TypeError, ValueError, json.JSONDecodeError):
             pass

@@ -19,6 +19,10 @@ flowchart LR
     Router -->|系统讲解| ExplainGraph[Explanation Subgraph]
     Router -->|开始/继续 Lecture| LectureGraph[Lecture Subgraph]
     Router -->|用户显式要求联网| SearchGraph[Search Subgraph]
+    Router -->|复合请求| Multi[Multi-agent task plan]
+    Multi --> QAGraph
+    Multi --> SearchGraph
+    Multi --> Synthesis[Answer synthesis]
 
     SearchGraph --> WebTool[(Web Search Tool\n仅显式触发)]
     SearchGraph -.->|用户确认后| Ingest[(标准摄取管线)]
@@ -36,8 +40,9 @@ flowchart LR
     LectureGraph --> Mastery
 ```
 
-- **Orchestrator**：所有 Chat 请求先由 Fast 档小模型识别 `qa / web / quiz / test / review / progress / plan / explain` 意图，并返回置信度、候选意图与理由。低置信度时 Router 不执行任务，而是在 Chat 消息内给出可点击选项；用户选择后显式进入对应分支且不再调用 Router 模型。每个节点的输入输出、模型档位和实际模型都会写入调用链。
+- **Orchestrator**：所有 Chat 请求先由 Fast 档小模型生成 `tasks[]` 计划，每项包含 Agent 和可独立执行的 query。简单请求只有一项；显式要求“联网查询 + 检查教材”等不同来源的复合请求会同时生成 `web` 与 `qa` 子任务。两个 Agent 并发收集网页正文与 RAG 片段，但不各自生成答案；Orchestrator 先把原始上下文统一编号并拼接，再只调用一次 Smart 档 Answer Agent。低置信度的候选方向属于“二选一”而非复合任务，此时 Router 不执行任务，而是在 Chat 消息内给出可点击选项。每个 Agent 的任务、上下文结果、模型档位和实际模型都会写入同一条调用链。
 - **单一交互入口**：问答、详细讲解、练习、计时测试、错题复习和掌握度查看都在 Chat 消息中完成；前端以持久化 `artifacts` 渲染交互卡片，不为每个 Agent 建立独立页面。
+- **多 Agent 边界**：当前组合执行面向知识获取任务（`qa` 与 `web`，可各有多个聚焦子问题）；测验、计划等会写数据库的动作型 Agent 仍保持单任务事务，避免一次模糊请求产生多个不可逆状态变更。
 - **子图（Subgraph）**：QA、Planner、Quiz、Lecture 各自是独立的 `StateGraph`，有各自的 State（TypedDict/Pydantic）、节点、边。子图之间通过共享的 Tools 和数据库访问层复用能力，而不是互相硬编码调用。
 
 ## 3. 共享工具（Tools）
