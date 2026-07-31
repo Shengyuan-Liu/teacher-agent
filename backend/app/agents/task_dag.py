@@ -408,7 +408,7 @@ class TaskDAGExecutor:
                 return True, result, "", attempt
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - failures become graph state
+            except Exception as exc:  # Node failures become graph state for retry/checkpointing.
                 last_error = f"{type(exc).__name__}: {exc}"
                 self.blackboard.errors[node.id] = last_error
                 if self.checkpoint_store is not None:

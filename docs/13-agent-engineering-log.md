@@ -571,3 +571,36 @@ P50/P95、bootstrap CI 或并发 fault profile。
 都使用 Terra，仍有 self-preference 风险，正式实验应换独立模型并扩展到 30+ repeats。
 HTTP readiness 不代表付费 Chat 端到端 SLO；部署后还需要 authenticated canary、soak
 test 和外部区域负载。
+
+## AE-022 — Agent 调用链去重与依赖表面清理
+
+**问题**：Chat 与 Replay 的前端 SSE 客户端分别维护请求、鉴权刷新、错误解析和事件分发，
+相同协议出现两份实现；前端还安装了从未接入的 `assistant-ui`，后端在已经只使用
+`langchain-core`/LangGraph 后仍直接依赖完整 `langchain` 聚合包。未使用的 API export
+也扩大了内部模块的维护表面。
+
+**根因**：Chat 流式入口早于通用 Agent Replay 客户端实现，后续功能沿专用路径继续演进；
+规划阶段加入的 UI/LLM 依赖没有在实现迁移后回收；TypeScript 类型默认导出，缺少针对
+公共表面的 dead-export 检查。
+
+**方案**：
+
+- Chat 与 Replay 统一经过一个私有 SSE transport，集中处理 POST、401 refresh、非 2xx
+  错误、增量解码和事件分发；Chat 只保留 endpoint 与 request payload 的差异；
+- 保留 invalid JSON fail-fast、未知事件向前兼容、稳定 `request_id` 和完整错误上抛边界；
+- 删除未使用的 `@assistant-ui/react` 与 `langchain` 聚合依赖，继续保留实际使用的 React、
+  LangChain Core、LangGraph、provider、数据库驱动和 instrumentation 依赖；
+- 将只在模块内部组合的 API 类型与 safe-triangle 几何函数改为私有；评测中的预期超时
+  使用标准库 `contextlib.suppress`，不改变生产熔断器逻辑；
+- 没有抽取后端各 Agent 的“事件发送 → 消息提交”相似片段，因为 citation、artifact、
+  grounded 与 done payload 的差异属于协议语义，通用包装会隐藏关键执行顺序。
+
+**验证**：后端 200 个测试通过；`eval fast` 的 structured output、Router、安全、资源治理
+与多 Agent 协作共 35/35；deterministic benchmark 成功，40-turn/20-concurrency 韧性
+报告的 6 个 gate 全部通过。前端 32 个测试、TypeScript、lint 和生产构建通过；Knip
+不再报告未使用文件、依赖或 export，Ruff/格式/扩展简化规则通过。Vulture 唯一剩余项是
+Redis 测试 stub 的 `ex` 参数，它必须匹配生产代码的关键字 TTL 调用，并非死代码。
+
+**取舍与剩余边界**：本次是等价重构，没有修改 Router、DAG、模型选择或重试次数；未为
+追求重复率数字而抽象后端 SSE 编排。生产 bundle 仍提示单 chunk 超过 500 kB，后续可按
+路由做 lazy loading，但它是加载性能工作，不应混入本次 Agent 行为保持型清理。

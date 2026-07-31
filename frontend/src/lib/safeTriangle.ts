@@ -14,7 +14,7 @@ function sign(a: Point, b: Point, c: Point): number {
   return (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
 }
 
-export function inTriangle(p: Point, a: Point, b: Point, c: Point): boolean {
+function inTriangle(p: Point, a: Point, b: Point, c: Point): boolean {
   const d1 = sign(p, a, b)
   const d2 = sign(p, b, c)
   const d3 = sign(p, c, a)
@@ -23,7 +23,7 @@ export function inTriangle(p: Point, a: Point, b: Point, c: Point): boolean {
   return !(hasNeg && hasPos)
 }
 
-export function inRect(p: Point, r: Rect): boolean {
+function inRect(p: Point, r: Rect): boolean {
   return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom
 }
 

@@ -101,7 +101,7 @@ export interface Workspace {
   created_at: string
 }
 
-export type Provenance = 'user_upload' | 'user_url' | 'user_github' | 'web_search'
+type Provenance = 'user_upload' | 'user_url' | 'user_github' | 'web_search'
 
 export interface Source {
   id: string
@@ -135,7 +135,7 @@ export interface Citation {
   page_end?: number | null
 }
 
-export interface UsageCall {
+interface UsageCall {
   step: string
   model: string
   input_tokens: number
@@ -280,7 +280,7 @@ export type TraceResult =
   | TraceResult[]
   | { [key: string]: TraceResult }
 
-export interface TraceRecord {
+interface TraceRecord {
   agent: string
   stage: string
   label: string
@@ -291,7 +291,7 @@ export interface TraceRecord {
   reasoning_effort?: string
 }
 
-export interface PlanStage {
+interface PlanStage {
   id: string
   position: number
   title: string
@@ -405,7 +405,7 @@ export interface EvalSuite {
   requires_model: boolean
 }
 
-export interface EvalCase {
+interface EvalCase {
   id: string
   key: string
   position: number
@@ -431,7 +431,7 @@ export interface EvalDataset {
   cases: EvalCase[] | null
 }
 
-export interface EvalResult {
+interface EvalResult {
   id: string
   case_id: string
   case_key: string
@@ -571,7 +571,7 @@ export interface AgentRun {
   } | null
 }
 
-export interface ObservabilityBreakdown {
+interface ObservabilityBreakdown {
   name: string
   calls: number
   errors: number
@@ -597,7 +597,7 @@ export interface ObservabilitySummary {
   by_model: ObservabilityBreakdown[]
 }
 
-export interface PromptVersion {
+interface PromptVersion {
   id: string | null
   version: number
   status: 'builtin' | 'draft' | 'active' | 'archived'
@@ -804,7 +804,7 @@ export const api = {
     }),
 }
 
-export interface StageEvent {
+interface StageEvent {
   agent: string
   stage: string
   label: string
@@ -814,7 +814,7 @@ export interface StageEvent {
   reasoning_effort?: string
 }
 
-export interface StageResultEvent {
+interface StageResultEvent {
   stage: string
   result: TraceResult
   provider?: string
@@ -873,10 +873,10 @@ export function dispatchStreamEvent(
 }
 
 /** POST an SSE endpoint and dispatch its events; shared by every agent run. */
-export async function streamAgent(
+async function streamAgent(
   path: string,
   body: unknown,
-  handlers: AgentStreamHandlers & Partial<Pick<StreamHandlers, 'onCitations' | 'onToken'>>,
+  handlers: DispatchHandlers,
 ): Promise<void> {
   const open = () =>
     fetch(`${BASE_URL}${path}`, {
@@ -917,34 +917,11 @@ export async function streamAnswer(
 ): Promise<void> {
   // Keep requestId unchanged across auth retries. The backend uses it to replay
   // a committed turn or resume the original durable DAG after disconnection.
-  const open = () =>
-    fetch(`${BASE_URL}/chat/sessions/${sessionId}/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ message, web_search: webSearch, intent, request_id: requestId }),
-    })
-
-  let res = await open()
-  if (res.status === 401 && (await refreshSession())) {
-    res = await open()
-  }
-  if (!res.ok || !res.body) {
-    const body = await res.json().catch(() => null)
-    throw new ApiError(body?.detail ?? res.statusText, res.status)
-  }
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  const parser = new SseParser()
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    for (const { event, data } of parser.push(decoder.decode(value, { stream: true }))) {
-      dispatchStreamEvent(event, data, handlers)
-    }
-  }
+  return streamAgent(
+    `/chat/sessions/${sessionId}/stream`,
+    { message, web_search: webSearch, intent, request_id: requestId },
+    handlers,
+  )
 }
 
 export async function replayAgentRun(

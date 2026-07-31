@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import suppress
 
 from app.evaluation.base import EvaluationCase, EvaluationContext, EvaluationOutcome, SuiteInfo
 from app.evaluation.registry import register
@@ -123,10 +124,8 @@ class ResourceGovernanceSuite:
             raise TimeoutError("injected")
 
         for _ in range(int(case.input.get("failures", 2))):
-            try:
+            with suppress(TimeoutError):
                 await breaker.call(dependency, fail)
-            except TimeoutError:
-                pass
         try:
             await breaker.before_call(dependency)
             blocked_while_open = False

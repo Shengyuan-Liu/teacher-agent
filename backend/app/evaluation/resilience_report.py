@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -196,10 +197,8 @@ async def _circuit_recovery() -> dict[str, Any]:
         raise TimeoutError("injected")
 
     for _failure in range(3):
-        try:
+        with suppress(TimeoutError):
             await breaker.call("resilience:provider", fail)
-        except TimeoutError:
-            pass
     blocked = 0
     for _request in range(50):
         try:

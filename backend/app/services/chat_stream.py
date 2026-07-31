@@ -183,8 +183,7 @@ def _render_quiz(questions: list[dict]) -> str:
     for i, q in enumerate(questions, 1):
         kind = _QUIZ_TYPE_LABELS.get(q["type"], q["type"])
         lines.append(f"**{i}. {q['stem']}**  _({kind} · {q['difficulty']})_")
-        for opt in q.get("options") or []:
-            lines.append(f"- {opt}")
+        lines.extend(f"- {opt}" for opt in q.get("options") or [])
         answer = q["answer"]
         answer = ", ".join(answer) if isinstance(answer, list) else answer
         lines += ["", f"**Answer:** {answer}"]
@@ -1805,8 +1804,10 @@ def _replay_message_events(message: Message | None) -> list[dict]:
     events.append({"event": "token", "data": json.dumps({"delta": message.content})})
     if message.citations:
         events.append({"event": "citations", "data": json.dumps(message.citations)})
-    for citation in message.web_citations:
-        events.append({"event": "web_citation", "data": json.dumps(citation)})
+    events.extend(
+        {"event": "web_citation", "data": json.dumps(citation)}
+        for citation in message.web_citations
+    )
     if message.artifacts:
         events.append(
             {"event": "artifact", "data": json.dumps(message.artifacts, ensure_ascii=False)}

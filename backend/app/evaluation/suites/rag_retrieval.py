@@ -6,11 +6,11 @@ from app.rag.evaluation.metrics import mrr, recall_at_k
 from app.rag.retriever import RetrievalConfig, retrieve
 
 VARIANTS = {
-    "dense_only": dict(use_dense=True, use_sparse=False, use_rerank=False),
-    "sparse_only": dict(use_dense=False, use_sparse=True, use_rerank=False),
-    "hybrid_rrf": dict(use_dense=True, use_sparse=True, use_rerank=False),
-    "dense_rerank": dict(use_dense=True, use_sparse=False, use_rerank=True),
-    "hybrid_rrf_rerank": dict(use_dense=True, use_sparse=True, use_rerank=True),
+    "dense_only": {"use_dense": True, "use_sparse": False, "use_rerank": False},
+    "sparse_only": {"use_dense": False, "use_sparse": True, "use_rerank": False},
+    "hybrid_rrf": {"use_dense": True, "use_sparse": True, "use_rerank": False},
+    "dense_rerank": {"use_dense": True, "use_sparse": False, "use_rerank": True},
+    "hybrid_rrf_rerank": {"use_dense": True, "use_sparse": True, "use_rerank": True},
 }
 
 

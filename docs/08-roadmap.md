@@ -3,7 +3,7 @@
 ## Phase 0 — 项目脚手架（准备阶段）
 - 初始化 monorepo 结构（`frontend/`、`backend/`、`docs/`）
 - 后端：FastAPI 项目骨架、PostgreSQL(+pgvector) + Redis 的 docker-compose、鉴权（注册/登录/JWT）
-- 前端：Vite + React + TS 骨架，接入 `assistant-ui` 基础 Chat 组件
+- 前端：Vite + React + TS，统一 Chat/Lecture 流式交互与调用链展示
 - 打通"用户注册登录 → 创建空 Workspace"这条最短路径
 
 ## Phase 1 — MVP：单文档问答闭环
