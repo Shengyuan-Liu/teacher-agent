@@ -93,6 +93,9 @@
 - Observability：持久化 Agent run/span、延迟分解、token/成本与错误分类，支持按模型和 Agent 聚合。
 - Task DAG / durable execution：显式依赖、共享 blackboard、幂等 worker、重试/降级与部分结果恢复。
 - Multi-Agent coordination benchmark：比较单 Agent、并发 fan-out、监督者/worker 在质量、延迟、成本上的 trade-off。
+- Prompt Registry：稳定 key、不可变版本、workspace override、变量契约、内容 hash、Eval 快照与 Replay。
+- Agent Security / Red Team：输入、外部 context、输出和工具权限四个边界的运行时策略与持续红队 gate。
+- Resource Governance：请求级成本预算、workspace cache、single-flight、外部依赖熔断与故障注入评测。
 - **验收标准**：每次发布有可复现的质量基线；关键指标退化会阻止发布；一次线上失败能定位到具体 Agent、模型、输入版本和 span。
 
 当前状态（2026-07-31）：
@@ -103,7 +106,7 @@
 - [x] 绝对指标下限和相对 baseline 最大回归 gate；执行状态与质量状态分离。
 - [x] Structured Output、Router Contract、RAG Retrieval 三个首批适配器。
 - [x] Workspace Evaluation Dashboard：starter/import、异步运行、baseline 和 case 下钻。
-- [x] `make eval-fast` 与 GitHub Actions 无模型回归 gate，覆盖 12 个 golden/adversarial cases。
+- [x] `make eval-fast` 与 GitHub Actions 无模型回归 gate，覆盖 35 个 golden/adversarial/security/governance cases。
 - [x] OpenTelemetry SDK 与 FastAPI、HTTPX、SQLAlchemy instrumentation；OTLP/console/none 可配置导出。
 - [x] AgentRun / AgentSpan 持久化、统一 trace ID、Agent waterfall、模型调用 token/成本和错误聚合。
 - [x] Workspace Observability Dashboard 与隔离 Replay；对比 latency、token、cost 和输出变化，不污染 Chat 历史。
@@ -115,11 +118,23 @@
 - [x] Multi-Agent Coordination suite：single-agent、Typed DAG、顺序 DAG、无 synthesis 四策略消融。
 - [x] Deterministic benchmark 进入 CI；Dashboard 支持一键 ablation matrix、live matrix 和跨策略指标表。
 - [x] 建立 Agent Engineering Log，并用仓库级规则要求后续 Agent 优化同步记录问题、方案和验证。
+- [x] Prompt Registry 首版：11 个关键 Agent prompt 版本化，支持 draft/activate/rollback/builtin fallback。
+- [x] Prompt 版本进入 Chat 调用链、usage、AgentRun 与 EvalResult；Replay 支持 current/original 两种模式。
+- [x] 统一 Agent Security policy：输入 extraction/exfiltration 拒绝、RAG/Web context quarantine、输出 credential guard。
+- [x] Web 工具授权统一为 deployment + explicit consent；安全判定进入 Chat 调用链和 AgentRun/Span。
+- [x] Agent Security 红队 suite：14 个 attack/benign cases、6 类指标、Dashboard starter 与 CI gate。
+- [x] 单 turn 预算 reservation/reconciliation：soft limit Smart→Fast，hard call/token/cost limit fail-closed。
+- [x] Router 与 Web Search workspace 隔离 Redis cache、内容哈希 key 和进程内 single-flight。
+- [x] LLM/Web/reranker Redis 分布式 closed/open/half-open 熔断；Redis outage 进入本地降级。
+- [x] Resource Governance 调用链、Usage、AgentRun/Span、OTel 指标与 5-case fault-injection Eval suite。
 - [ ] 增加调用真实 Router 模型的语义准确率 suite，并从匿名化对话 failure 中沉淀 production cases。
 - [ ] 增加 RAG answer faithfulness/correctness judge、Lecture 状态机和 multi-agent coordination suites。
 - [ ] 实现 production failure 一键提升为 Eval Case、nightly paid eval 和 release baseline promotion。
-- [ ] 将 DAG 节点升级为独立 durable checkpoint：幂等 worker、进程重启恢复、可选依赖与降级。
-- [ ] 对 live multi-agent matrix 做固定模型版本的多次重复实验，计算 P50/P95 与置信区间并发布报告。
+- [x] DAG 节点独立 durable checkpoint：稳定 execution key、materialized result、worker lease、原 DAG 恢复与调用链标记。
+- [x] 发布 480-sample deterministic、48-sample live pilot、bootstrap 95% CI 与完整 case-level JSON。
+- [x] 200-turn/50-concurrency resilience profile 与 500-request HTTP readiness SLO 报告进入可复现 CLI；CI 运行 smoke profile。
+- [ ] Typed DAG 可选依赖、部分结果降级，以及有副作用 tool 的 provider-side idempotency key。
+- [ ] 将 live multi-agent matrix 扩展到每策略 30+ repeats 后再对稳定收益做公开结论。
 
 ## Phase 6（远期，非承诺范围）
 

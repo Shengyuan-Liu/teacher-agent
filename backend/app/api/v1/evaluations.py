@@ -12,6 +12,7 @@ from app.evaluation.fixtures import STARTER_CASES
 from app.evaluation.registry import get_suite, list_suites
 from app.evaluation.runner import git_sha
 from app.models import EvalCase, EvalDataset, EvalResult, EvalRun, User, Workspace
+from app.prompts.registry import active_prompt_manifest
 from app.schemas.evaluation import (
     EvalDatasetCreate,
     EvalDatasetResponse,
@@ -20,6 +21,7 @@ from app.schemas.evaluation import (
     EvalStarterCreate,
     EvalSuiteResponse,
 )
+from app.services.agent_security import SECURITY_POLICY_VERSION
 from app.services.providers import IntelligenceTier, model_trace
 from app.services.queue import get_queue
 
@@ -238,12 +240,18 @@ async def create_starter_dataset(
         )
     name = body.name or f"{body.suite.replace('_', ' ').title()} Golden Set"
     is_coordination = body.suite == "multi_agent_coordination"
+    is_security = body.suite == "agent_security"
+    is_governance = body.suite == "resource_governance"
     return await create_dataset(
         EvalDatasetCreate(
             name=name,
             description=(
                 "Built-in multi-agent coordination and ablation cases."
                 if is_coordination
+                else "Built-in Agent security red-team and false-positive cases."
+                if is_security
+                else "Built-in budget, cache isolation and circuit fault-injection cases."
+                if is_governance
                 else "Built-in adversarial contract cases; customize before release."
             ),
             suite=body.suite,
@@ -256,6 +264,10 @@ async def create_starter_dataset(
                         "citation_coverage": 1.0,
                     }
                     if is_coordination
+                    else {"security_accuracy": 1.0}
+                    if is_security
+                    else {"resource_governance_accuracy": 1.0}
+                    if is_governance
                     else {"contract_accuracy": 1.0}
                 ),
                 **(
@@ -349,6 +361,8 @@ async def create_run(
                 "embedding_provider": settings.embedding_provider,
                 "embedding_model": settings.embedding_model,
                 "reranker": settings.reranker,
+                "prompts": await active_prompt_manifest(workspace.id),
+                "security_policy_version": SECURITY_POLICY_VERSION,
             },
         },
         git_sha=git_sha(),

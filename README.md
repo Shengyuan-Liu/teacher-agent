@@ -16,16 +16,18 @@
 - 🎓 **互动讲课** — 在 Chat 中分节讲解、检验理解，插入问题后回到原进度，并可跨天恢复
 - 🧭 **过程透明** — Router、检索、规划和出题的每一步结果、模型与用量都显示在调用链中
 - 🧩 **复合问题多 Agent 协作** — 一次提问可同时拆给 Web 与 RAG Agent，再合并成带统一引用的回答
-- 🔀 **Typed Task DAG** — 显式依赖、拓扑并发、共享 blackboard、超时/重试与失败传播都可在调用链中检查
-- 📊 **Multi-Agent 消融实验** — 同一数据集比较 single-agent、并发 DAG、顺序 DAG 与无 synthesis 的质量/延迟/成本
+- 🔀 **Durable Typed Task DAG** — 显式依赖、拓扑并发、PostgreSQL 节点 checkpoint、worker lease、重启恢复与失败传播都可检查
+- 📊 **Multi-Agent 消融实验** — 同一数据集比较四策略，发布 deterministic/live 的 P50/P95、bootstrap CI、token 与真实成本
 - 📄 **PDF 精确定位** — 摄取时保留原始页码，引用可直接打开对应页面
 - 🌐 **显式联网** — 只有用户主动要求或点击时才搜索，可先查看候选资料再决定是否入库
 - 🧪 **统一质量评测** — 版本化 golden set、逐 case 结果、模型/成本快照、baseline 对比与 CI 回归 gate
 - 🔭 **Agent 可观测与 Replay** — OpenTelemetry traces、Agent waterfall、按模型统计延迟/token/成本，并隔离重跑历史输入
+- 🛡️ **成本与韧性治理** — 每轮预算预留、Smart→Fast 软降级、workspace 隔离缓存和 Redis 分布式熔断都进入调用链
+- 🚦 **负载与故障证据** — 50 并发 DAG timeout/retry、cache stampede、预算争抢、circuit recovery 和 HTTP readiness SLO 均有版本化报告
 
 问答、详细讲解、随堂练习、正式测试、错题复习和掌握度从 Chat 发起；Lecture 同时拥有与 Chat 平级的课程入口、历史列表和专属播放页，并继续复用 Chat 的插问与 Agent 编排能力。当 Router 无法确定方向时，会先给出可点击选项让用户决定。
 
-> **当前进度**：Phase 1–4 主链路已经实现；Phase 5 已完成统一 AI Evaluation、OpenTelemetry Observability / Replay、Typed Task DAG 和 Multi-Agent 消融平台首版，下一步补齐节点级 durable checkpoint 与真实模型重复实验报告。完整设计见 [docs/](docs/README.md)，开发路线见 [路线图](docs/08-roadmap.md)。
+> **当前进度**：Phase 1–4 主链路和 Phase 5 AI Engineering 生产化已完成：统一 Evaluation、OpenTelemetry/Replay、Durable Typed DAG、Multi-Agent 消融、Prompt Registry、安全红队、资源治理及负载/故障报告。实验没有假设多 Agent 必然更好，真实结果与边界见 [Benchmark](docs/reports/multi-agent-live.md) 和 [Resilience](docs/reports/agent-resilience.md)。
 
 ## 快速开始
 
@@ -44,6 +46,8 @@ make dev     # 启动
 
 ```bash
 make eval-fast
+make benchmark-report   # 30-repeat deterministic ablation + bootstrap CI
+make resilience-report  # 50 并发 retry/cache/budget/circuit profile
 ```
 
 本地查看完整 OpenTelemetry waterfall：
@@ -70,10 +74,19 @@ cp .env.example .env
 | `OBSERVABILITY_ENABLED` / `OTEL_TRACES_EXPORTER` | Agent trace 持久化开关与外部 `none|otlp|console` 导出 |
 | `OTEL_CAPTURE_CONTENT` | 是否为 Replay 在 PostgreSQL 保留输入内容；关闭后仍记录指标 |
 | `TASK_DAG_MAX_NODES` / `TASK_DAG_NODE_TIMEOUT_SECONDS` | DAG 节点数量上限与单次执行超时 |
-| `TASK_DAG_MAX_ATTEMPTS` | DAG 节点默认最大尝试次数 |
+| `TASK_DAG_MAX_ATTEMPTS` / `TASK_DAG_LEASE_SECONDS` | DAG 节点默认最大尝试次数与 durable worker lease |
+| `PROMPT_CACHE_TTL_SECONDS` | workspace active prompt 的进程内缓存 TTL；激活/回滚会主动清除当前进程 |
+| `TURN_BUDGET_MAX_MODEL_CALLS` / `TURN_BUDGET_MAX_TOKENS` / `TURN_BUDGET_MAX_COST_USD` | 单次 Chat turn 的模型调用、token 与美元硬预算 |
+| `TURN_BUDGET_SOFT_RATIO` | 达到该预算比例后把新的 Smart 调用降级为 Fast |
+| `ROUTER_CACHE_TTL_SECONDS` / `WEB_SEARCH_CACHE_TTL_SECONDS` | workspace 隔离 Redis cache TTL；设为 0 可按能力关闭 |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` / `CIRCUIT_BREAKER_RECOVERY_SECONDS` | LLM、Web、reranker 分布式熔断阈值与恢复窗口 |
 
 不填 key 也能启动，只是用不了需要模型的功能。
 
 ## 技术栈
 
 TypeScript + React 前端，Python + FastAPI 后端，LangGraph 做 Agent 编排，PostgreSQL + pgvector 存向量，Redis 做队列。
+
+## License
+
+[MIT](LICENSE)

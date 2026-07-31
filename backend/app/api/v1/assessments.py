@@ -192,9 +192,7 @@ async def submit_assessment(
 ) -> dict[str, Any]:
     workspace_id_value = workspace.id
     user_id_value = user.id
-    assessment = await _owned_assessment(
-        db, assessment_id, workspace_id_value, user_id_value
-    )
+    assessment = await _owned_assessment(db, assessment_id, workspace_id_value, user_id_value)
     if assessment.status != "in_progress":
         return _assessment_payload(assessment)
 

@@ -51,7 +51,11 @@ async def web_search(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "RATE_LIMITED")
     try:
         result = await search_candidates(
-            workspace.name, intent, body.top_k or settings.web_search_top_k, body.site_filter
+            workspace.name,
+            intent,
+            body.top_k or settings.web_search_top_k,
+            body.site_filter,
+            workspace_id=workspace.id,
         )
     except WebSearchError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "WEB_SEARCH_FAILED") from exc

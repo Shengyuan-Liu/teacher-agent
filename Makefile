@@ -1,4 +1,4 @@
-.PHONY: help setup up down stop logs backend worker frontend dev dev-bg observability-up observability-backend test eval-fast lint fmt migrate migration reset-db ps
+.PHONY: help setup up down stop logs backend worker frontend dev dev-bg observability-up observability-backend test eval-fast benchmark-report resilience-report http-load lint fmt migrate migration reset-db ps
 
 help:  ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -53,6 +53,15 @@ test:  ## Run backend and frontend tests, requires running containers
 
 eval-fast:  ## Run model-free Router and structured-output regression gates
 	cd backend && ENVIRONMENT=test DEBUG=false uv run python -m app.evaluation.cli fast
+
+benchmark-report:  ## Generate the 30-repeat deterministic multi-agent report
+	cd backend && ENVIRONMENT=test DEBUG=false uv run python -m app.evaluation.cli benchmark --repeats 30
+
+resilience-report:  ## Stress DAG retries, cache, budget and circuit recovery
+	cd backend && ENVIRONMENT=test DEBUG=false uv run python -m app.evaluation.cli resilience --turns 200 --concurrency 50
+
+http-load:  ## Probe readiness with 500 requests at concurrency 50
+	cd backend && uv run python ../scripts/http_load.py --requests 500 --concurrency 50
 
 lint:  ## Check backend and frontend
 	cd backend && uv run ruff check app tests && uv run ruff format --check app tests

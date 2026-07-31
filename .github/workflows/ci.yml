@@ -56,6 +56,8 @@ jobs:
       - run: uv run alembic upgrade head
       - run: uv run ruff check app tests
       - run: uv run python -m app.evaluation.cli fast
+      - run: uv run python -m app.evaluation.cli benchmark --repeats 3 --output-dir /tmp/teacher-agent-reports
+      - run: uv run python -m app.evaluation.cli resilience --turns 40 --concurrency 20 --output-dir /tmp/teacher-agent-reports
       - run: uv run pytest -q
 
   frontend:

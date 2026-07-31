@@ -133,6 +133,13 @@ export interface UsageCall {
   input_tokens: number
   output_tokens: number
   cost_usd: number | null
+  prompt?: {
+    step: string
+    key: string
+    version: number
+    content_hash: string
+    source: 'builtin' | 'workspace'
+  } | null
 }
 
 export interface Usage {
@@ -143,6 +150,47 @@ export interface Usage {
   /** false when some call used a model with no configured price */
   priced: boolean
   calls: UsageCall[]
+  resource_governance?: {
+    policy_version: string
+    workspace_scoped: boolean
+    budget: {
+      enabled: boolean
+      limits: {
+        max_model_calls: number
+        max_tokens: number
+        max_cost_usd: number
+        soft_ratio: number
+      }
+      actual: {
+        model_calls: number
+        input_tokens: number
+        output_tokens: number
+        cost_usd: number
+      }
+      projected: {
+        model_calls: number
+        tokens: number
+        cost_usd: number
+      }
+      reserved_model_calls: number
+      cost_fully_enforced: boolean
+      downgraded_calls: number
+      hard_stop: boolean
+      events: TraceResult[]
+    }
+    cache: {
+      enabled: boolean
+      hits: number
+      misses: number
+      bypasses: number
+      errors: number
+      events: TraceResult[]
+    }
+    circuit_breaker: {
+      enabled: boolean
+      events: TraceResult[]
+    }
+  }
 }
 
 export interface WebCitation {
@@ -511,6 +559,7 @@ export interface AgentRun {
     output_tokens_delta: number
     cost_delta_usd: number | null
     output_changed: boolean
+    prompts_changed: boolean
   } | null
 }
 
@@ -538,6 +587,30 @@ export interface ObservabilitySummary {
   cost_usd: number | null
   by_agent: ObservabilityBreakdown[]
   by_model: ObservabilityBreakdown[]
+}
+
+export interface PromptVersion {
+  id: string | null
+  version: number
+  status: 'builtin' | 'draft' | 'active' | 'archived'
+  template: string
+  variables: string[]
+  content_hash: string
+  source: 'builtin' | 'workspace'
+  notes: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+  activated_at: string | null
+}
+
+export interface PromptDefinition {
+  key: string
+  description: string
+  required_variables: string[]
+  active_version: number
+  active_source: 'builtin' | 'workspace'
+  active_content_hash: string
+  versions: PromptVersion[]
 }
 
 export async function fetchImage(
@@ -648,6 +721,29 @@ export const api = {
     request<AgentRun[]>(`/workspaces/${workspaceId}/observability/runs`),
   getAgentRun: (workspaceId: string, runId: string) =>
     request<AgentRun>(`/workspaces/${workspaceId}/observability/runs/${runId}`),
+
+  listPrompts: (workspaceId: string) =>
+    request<PromptDefinition[]>(`/workspaces/${workspaceId}/prompts`),
+  createPromptVersion: (
+    workspaceId: string,
+    key: string,
+    body: { template: string; notes?: string; metadata?: Record<string, unknown> },
+  ) =>
+    json<PromptDefinition>(
+      `/workspaces/${workspaceId}/prompts/${encodeURIComponent(key)}/versions`,
+      'POST',
+      body,
+    ),
+  activatePromptVersion: (workspaceId: string, key: string, version: number) =>
+    request<PromptDefinition>(
+      `/workspaces/${workspaceId}/prompts/${encodeURIComponent(key)}/versions/${version}/activate`,
+      { method: 'POST' },
+    ),
+  resetPromptToBuiltin: (workspaceId: string, key: string) =>
+    request<PromptDefinition>(
+      `/workspaces/${workspaceId}/prompts/${encodeURIComponent(key)}/reset-to-builtin`,
+      { method: 'POST' },
+    ),
 
   listPlans: (workspaceId: string) => request<StudyPlan[]>(`/workspaces/${workspaceId}/plans`),
   updateStage: (planId: string, stageId: string, status: 'pending' | 'done') =>
@@ -843,10 +939,11 @@ export async function replayAgentRun(
   workspaceId: string,
   runId: string,
   handlers: AgentStreamHandlers,
+  promptMode: 'current' | 'original' = 'current',
 ): Promise<void> {
   return streamAgent(
     `/workspaces/${workspaceId}/observability/runs/${runId}/replay/stream`,
-    {},
+    { prompt_mode: promptMode },
     handlers,
   )
 }

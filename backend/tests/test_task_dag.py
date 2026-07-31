@@ -1,6 +1,8 @@
 import asyncio
+import uuid
 
 import pytest
+from httpx import AsyncClient
 
 from app.agents.router import (
     AgentTask,
@@ -8,10 +10,49 @@ from app.agents.router import (
     parse_decision,
 )
 from app.agents.task_dag import (
+    TaskCheckpointSnapshot,
     TaskDAG,
     TaskDAGExecutor,
     TaskDAGValidationError,
 )
+from app.services.task_checkpoints import PostgresTaskCheckpointStore
+
+
+class MemoryCheckpointStore:
+    def __init__(self):
+        self.execution_id = str(uuid.uuid4())
+        self.loads = 0
+        self.statuses = {}
+        self.attempts = {}
+        self.results = {}
+        self.errors = {}
+        self.finished = []
+
+    async def load(self, dag):
+        self.loads += 1
+        for node in dag.nodes:
+            self.statuses.setdefault(node.id, "pending")
+        return TaskCheckpointSnapshot(
+            execution_id=self.execution_id,
+            resumed=self.loads > 1,
+            statuses=dict(self.statuses),
+            attempts=dict(self.attempts),
+            results=dict(self.results),
+            errors=dict(self.errors),
+        )
+
+    async def save(self, node, *, status, attempts, result=None, error=""):
+        self.statuses[node.id] = status
+        self.attempts[node.id] = attempts
+        if status == "completed":
+            self.results[node.id] = result
+        if error:
+            self.errors[node.id] = error
+        else:
+            self.errors.pop(node.id, None)
+
+    async def finish(self, status):
+        self.finished.append(status)
 
 
 def test_legacy_multi_source_tasks_gain_a_synthesis_node():
@@ -203,3 +244,115 @@ async def test_executor_enforces_per_node_timeout():
     assert executor.blackboard.statuses["qa_1"] == "failed"
     assert events[-1].type == "failed"
     assert "TimeoutError" in events[-1].error
+
+
+@pytest.mark.asyncio
+async def test_executor_resumes_from_materialized_node_checkpoints():
+    dag = TaskDAG.build(
+        (AgentTask("web", "web"), AgentTask("qa", "local")),
+        original_query="combine",
+    )
+    store = MemoryCheckpointStore()
+    calls = {"web": 0, "qa": 0, "answer": 0}
+
+    async def worker(node, _blackboard):
+        calls[node.agent] += 1
+        return {"source": node.agent}
+
+    async def answer(node, blackboard):
+        calls["answer"] += 1
+        return {"sources": [blackboard.result(dep)["source"] for dep in node.depends_on]}
+
+    first = TaskDAGExecutor(
+        dag,
+        {"web": worker, "qa": worker, "answer": answer},
+        checkpoint_store=store,
+    )
+    stream = first.run()
+    while True:
+        event = await anext(stream)
+        if event.node.id == "qa_1" and event.type == "completed":
+            break
+    await stream.aclose()
+
+    assert calls == {"web": 1, "qa": 1, "answer": 0}
+    assert store.finished == ["interrupted"]
+
+    resumed = TaskDAGExecutor(
+        dag,
+        {"web": worker, "qa": worker, "answer": answer},
+        checkpoint_store=store,
+    )
+    events = [event async for event in resumed.run()]
+
+    assert calls == {"web": 1, "qa": 1, "answer": 1}
+    assert [event.type for event in events[:2]] == ["restored", "restored"]
+    assert resumed.blackboard.resumed is True
+    assert resumed.blackboard.result("answer_1") == {"sources": ["web", "qa"]}
+    assert store.finished[-1] == "completed"
+
+
+def test_persisted_dag_payload_round_trips_retry_policy():
+    dag = TaskDAG.build(
+        (
+            AgentTask(
+                "web",
+                "web",
+                id="web_source",
+                timeout_seconds=12,
+                max_attempts=3,
+            ),
+            AgentTask("qa", "local", id="local_source"),
+        ),
+        original_query="combine",
+    )
+
+    restored = TaskDAG.from_payload(dag.as_payload())
+
+    assert restored.nodes == dag.nodes
+
+
+@pytest.mark.asyncio
+async def test_postgres_checkpoint_store_materializes_results_and_enforces_lease(
+    auth_client: AsyncClient,
+):
+    workspace = (
+        await auth_client.post("/workspaces", json={"name": "Durable DAG integration"})
+    ).json()
+    session = (await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")).json()
+    dag = TaskDAG.build((AgentTask("qa", "local"),), original_query="local")
+    execution_key = uuid.uuid4()
+    first = PostgresTaskCheckpointStore(
+        execution_key=execution_key,
+        workspace_id=uuid.UUID(workspace["id"]),
+        session_id=uuid.UUID(session["id"]),
+    )
+    snapshot = await first.load(dag)
+    assert snapshot.resumed is False
+
+    competing = PostgresTaskCheckpointStore(
+        execution_key=execution_key,
+        workspace_id=uuid.UUID(workspace["id"]),
+        session_id=uuid.UUID(session["id"]),
+    )
+    with pytest.raises(RuntimeError, match="Another worker"):
+        await competing.load(dag)
+
+    await first.save(
+        dag.nodes[0],
+        status="completed",
+        attempts=1,
+        result={"source": "persisted"},
+    )
+    await first.finish("interrupted")
+
+    resumed = PostgresTaskCheckpointStore(
+        execution_key=execution_key,
+        workspace_id=uuid.UUID(workspace["id"]),
+        session_id=uuid.UUID(session["id"]),
+    )
+    restored = await resumed.load(dag)
+    assert restored.resumed is True
+    assert restored.statuses == {"qa_1": "completed"}
+    assert restored.results == {"qa_1": {"source": "persisted"}}
+    await resumed.finish("completed")

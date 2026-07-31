@@ -12,7 +12,9 @@ from sqlalchemy.orm import selectinload
 from app.agents import language
 from app.core.database import AsyncSessionLocal
 from app.models import StudyPlan
+from app.prompts.registry import render_prompt
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
+from app.services.agent_security import inspect_agent_output, sanitize_untrusted_content
 from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 from app.services.structured_output import (
@@ -55,7 +57,7 @@ Rules:
 """
 
 INPUT_SYSTEM = """Classify the learner's latest message inside an active lecture.
-Return JSON only: {"kind":"answer|question","confidence":0.0,"reason":"brief"}
+Return JSON only: {{"kind":"answer|question","confidence":0.0,"reason":"brief"}}
 
 - answer: an attempt to answer the pending understanding check, even if incomplete or wrong.
 - question: a new question or request for clarification that interrupts the lecture.
@@ -63,7 +65,7 @@ Do not classify lecture controls; they are handled before this call.
 """
 
 GRADE_SYSTEM = """Grade a learner's answer to one lecture understanding check.
-Return JSON only: {"score":0.0,"feedback":"..."}
+Return JSON only: {{"score":0.0,"feedback":"..."}}
 
 Award partial credit. `score` is from 0 to 1. Feedback must directly address the learner's
 reasoning, briefly state what was correct, and repair what was missing. Use the requested
@@ -126,7 +128,7 @@ def _fallback_outline(state: LectureState) -> tuple[str, list[dict]]:
 def _fallback_section(state: LectureState, candidate: str) -> tuple[str, dict]:
     content = candidate.strip().strip("`").strip()
     if len(content) < 80:
-        excerpt = state["context"][0].content[:2200]
+        excerpt = sanitize_untrusted_content(state["context"][0].content[:2200]).safe_text or ""
         content = f"{excerpt}\n\n[1]"
     elif not re.search(r"\[\d+\]", content):
         content += "\n\n_Source basis: [1]_"
@@ -139,7 +141,9 @@ def _fallback_section(state: LectureState, candidate: str) -> tuple[str, dict]:
     )
     return content, {
         "question": question,
-        "expected_answer": state["context"][0].content[:900],
+        "expected_answer": (
+            sanitize_untrusted_content(state["context"][0].content[:900]).safe_text or ""
+        ),
         "explanation": "A sound answer should recover the central relationship in source [1].",
         "source": 1,
     }
@@ -245,7 +249,8 @@ def control_action(message: str) -> LectureControl | None:
 def _format_context(context: list[RetrievedChunk]) -> str:
     return "\n\n".join(
         f"[{index}] ({item.source_title}"
-        f"{' — ' + item.heading if item.heading else ''})\n{item.content[:3500]}"
+        f"{' — ' + item.heading if item.heading else ''})\n"
+        f"{sanitize_untrusted_content(item.content[:3500]).safe_text}"
         for index, item in enumerate(context, 1)
     )
 
@@ -285,11 +290,17 @@ async def load_lecture_context(state: LectureState) -> dict:
 
 
 async def generate_lecture_outline(state: LectureState) -> dict:
+    prompt = await render_prompt(
+        "lecture.outline",
+        {"language": language.instruction(state["scope"])},
+        workspace_id=uuid.UUID(state["workspace_id"]),
+        step="lecture_outline",
+    )
     try:
         result = await invoke_structured(
             model=chat_model(IntelligenceTier.SMART),
             messages=[
-                SystemMessage(OUTLINE_SYSTEM.format(language=language.instruction(state["scope"]))),
+                SystemMessage(prompt.text),
                 HumanMessage(
                     f"Learner request:\n{state['scope']}\n\n"
                     f"Study plan:\n{state['plan_context']}\n\n"
@@ -313,6 +324,7 @@ async def generate_lecture_outline(state: LectureState) -> dict:
         "outline": sections,
         "outline_format_recovered": repaired,
         "outline_recovery_method": recovery_method,
+        "prompt": prompt.prompt.metadata(),
     }
 
 
@@ -322,11 +334,17 @@ async def generate_lecture_section(state: LectureState) -> dict:
     if not 0 <= index < len(outline):
         raise ValueError("Lecture section index is outside the outline")
     section = outline[index]
+    prompt = await render_prompt(
+        "lecture.section",
+        {"language": language.instruction(state["scope"])},
+        workspace_id=uuid.UUID(state["workspace_id"]),
+        step="lecture_section",
+    )
     try:
         result = await invoke_structured(
             model=chat_model(IntelligenceTier.SMART),
             messages=[
-                SystemMessage(SECTION_SYSTEM.format(language=language.instruction(state["scope"]))),
+                SystemMessage(prompt.text),
                 HumanMessage(
                     f"Lecture: {state.get('title') or state['scope']}\n"
                     f"Section {index + 1}/{len(outline)}: {section['title']}\n"
@@ -348,22 +366,34 @@ async def generate_lecture_section(state: LectureState) -> dict:
         content, check = _fallback_section(state, exc.raw_text)
         repaired = True
         recovery_method = "grounded_fallback"
+    output_security = inspect_agent_output(content)
+    content = output_security.safe_text or ""
     return {
         "section_content": content,
         "pending_check": check,
         "section_format_recovered": repaired,
         "section_recovery_method": recovery_method,
+        "prompt": prompt.prompt.metadata(),
+        "security": output_security.as_payload(),
     }
 
 
 async def classify_lecture_input(
-    learner_message: str, pending_question: str
+    learner_message: str,
+    pending_question: str,
+    workspace_id: uuid.UUID | None = None,
 ) -> tuple[LectureInputKind, float, str, dict]:
+    prompt = await render_prompt(
+        "lecture.classify_input",
+        {},
+        workspace_id=workspace_id,
+        step="lecture_classify_input",
+    )
     try:
         result = await invoke_structured(
             model=chat_model(IntelligenceTier.FAST),
             messages=[
-                SystemMessage(INPUT_SYSTEM),
+                SystemMessage(prompt.text),
                 HumanMessage(
                     f"Pending understanding check: {pending_question}\n\n"
                     f"Learner message: {learner_message}"
@@ -394,12 +424,21 @@ async def classify_lecture_input(
 
 
 async def grade_lecture_answer(
-    learner_message: str, check: dict, answer_language: str
+    learner_message: str,
+    check: dict,
+    answer_language: str,
+    workspace_id: uuid.UUID | None = None,
 ) -> tuple[float, str, dict]:
+    prompt = await render_prompt(
+        "lecture.grade",
+        {},
+        workspace_id=workspace_id,
+        step="lecture_grade_check",
+    )
     result = await invoke_structured(
         model=chat_model(IntelligenceTier.SMART),
         messages=[
-            SystemMessage(GRADE_SYSTEM),
+            SystemMessage(prompt.text),
             HumanMessage(
                 f"Question: {check['question']}\n"
                 f"Reference answer: {check['expected_answer']}\n"
@@ -413,9 +452,10 @@ async def grade_lecture_answer(
         timeout_seconds=LLM_TIMEOUT_SECONDS,
     )
     score, feedback = result.value
+    guarded_feedback = inspect_agent_output(feedback)
     return (
         score,
-        feedback,
+        guarded_feedback.safe_text or "",
         {
             "format_recovered": result.recovered,
             "recovery_method": result.recovery_method,

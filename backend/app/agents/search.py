@@ -11,10 +11,11 @@ checkpointer lands.
 import asyncio
 import json
 import re
+import uuid
 
 from langchain_core.messages import HumanMessage
 
-from app.rag.search import SearchResult, get_search_provider
+from app.rag.search import SearchResult, cached_search, get_search_provider
 from app.services import usage
 from app.services.providers import IntelligenceTier, chat_model
 
@@ -39,11 +40,27 @@ Omit low-quality, off-topic, or redundant results."""
 
 
 async def search_candidates(
-    workspace: str, intent: str, top_k: int, site_filter: list[str] | None = None
+    workspace: str,
+    intent: str,
+    top_k: int,
+    site_filter: list[str] | None = None,
+    *,
+    workspace_id: uuid.UUID | None = None,
 ) -> dict:
     queries = await _build_queries(workspace, intent)
     provider = get_search_provider()
-    batches = await asyncio.gather(*(provider.search(q, top_k, site_filter) for q in queries))
+    batches = await asyncio.gather(
+        *(
+            cached_search(
+                provider,
+                workspace_id=workspace_id,
+                query=query,
+                top_k=top_k,
+                site_filter=site_filter,
+            )
+            for query in queries
+        )
+    )
     merged = _dedup(list(batches))[:top_k]
     ranked = await _rank(intent, merged) if merged else []
     return {"queries_used": queries, "results": ranked}

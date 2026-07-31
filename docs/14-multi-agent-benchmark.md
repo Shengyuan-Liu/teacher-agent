@@ -100,10 +100,31 @@ case output。Efficiency 指标是为了兼容“score 越高越好”的 baseli
 - `sequential_dag`：相同 worker/synthesis prompt，但顺序执行；
 - `no_synthesis`：Fast workers 并发，各自回答后直接拼接；
 - Runner 记录实际模型、token、USD cost 和 wall-clock。
+- 策略生成完成后，由版本化 `benchmark.judge` Smart 模型按语义 entailment 评分；
+  Judge 模型、Prompt hash、claim-level 分数和 JSON recovery 单独留痕，不计入策略成本。
+
+首轮 live pilot 暴露了一个评测缺陷：完整句子 substring matcher 会把正确的同义改写
+误判为 claim 丢失。确定性 contract 继续使用严格匹配，live 模式改用上述语义 Judge，
+并由 schema 校验和 bounded repair 保证结构化返回。
 
 Dashboard 的 “Run live matrix · uses models” 是显式付费动作。建议固定模型版本、reasoning
 effort、Dataset version 和 Git SHA，每个策略至少重复 30 次，并报告均值、P50/P95、
 标准差或 bootstrap confidence interval。
+
+## 已发布报告
+
+- [30-repeat deterministic report](reports/multi-agent-deterministic.md)：4 cases ×
+  4 variants × 30 repeats，共 480 个机制验证样本；
+- [3-repeat live pilot](reports/multi-agent-live.md)：Luna workers、Terra synthesis/Judge，
+  共 48 个真实策略样本；
+- JSON 产物保留全部 case-level answer、Judge evidence、模型选择、token、成本、
+  Git SHA、固定 bootstrap seed 和 95% CI。
+
+本次 live pilot 没有支持“多 Agent 全面优于单 Agent”：`single_agent` 平均质量最高；
+`typed_dag` 相比 `sequential_dag` 平均质量略高且关键路径更短，相比
+`no_synthesis` 质量更高但延迟和成本也更高。这说明 decomposition 应由任务复杂度与
+证据分布触发，而不是作为所有 query 的默认策略。3-repeat 仍是 pilot，不用于宣称稳定
+百分比收益；正式结论仍需要 30+ repeats。
 
 ## 使用方式
 

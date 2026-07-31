@@ -3,14 +3,22 @@
 import argparse
 import asyncio
 import json
+from pathlib import Path
 
 from app.evaluation.base import EvaluationCase
+from app.evaluation.benchmark_report import run_coordination_benchmark, write_report
 from app.evaluation.fixtures import STARTER_CASES
+from app.evaluation.resilience_report import (
+    run_resilience_profile,
+    write_resilience_report,
+)
 from app.evaluation.runner import execute_case
 
 FAST_SUITES = (
     "structured_output",
     "router_contract",
+    "agent_security",
+    "resource_governance",
     "multi_agent_coordination",
 )
 
@@ -54,11 +62,42 @@ async def run_fast(*, json_output: bool = False) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="TeacherAgent evaluation CLI")
-    parser.add_argument("command", choices=["fast"])
+    parser.add_argument("command", choices=["fast", "benchmark", "resilience"])
     parser.add_argument("--json", action="store_true", dest="json_output")
+    parser.add_argument("--mode", choices=["deterministic", "live"], default="deterministic")
+    parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--output-dir", type=Path, default=Path("../docs/reports"))
+    parser.add_argument("--turns", type=int, default=200)
+    parser.add_argument("--concurrency", type=int, default=50)
     args = parser.parse_args()
     if args.command == "fast" and not asyncio.run(run_fast(json_output=args.json_output)):
         raise SystemExit(1)
+    if args.command == "benchmark":
+        report = asyncio.run(
+            run_coordination_benchmark(
+                repeats=args.repeats,
+                execution_mode=args.mode,
+            )
+        )
+        paths = write_report(report, args.output_dir)
+        if args.json_output:
+            print(json.dumps(report, indent=2))
+        else:
+            print("\n".join(str(path) for path in paths))
+    if args.command == "resilience":
+        report = asyncio.run(
+            run_resilience_profile(
+                turns=args.turns,
+                concurrency=args.concurrency,
+            )
+        )
+        paths = write_resilience_report(report, args.output_dir)
+        if args.json_output:
+            print(json.dumps(report, indent=2))
+        else:
+            print("\n".join(str(path) for path in paths))
+        if not report["passed"]:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

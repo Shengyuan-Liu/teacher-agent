@@ -7,14 +7,19 @@ being silently sent to the wrong agent.
 
 import json
 import re
+import uuid
 from dataclasses import dataclass
 from typing import Literal, cast
 
 from langchain_core.messages import HumanMessage
 
 from app.agents.task_dag import AgentTask, TaskAgent
+from app.core.config import settings
+from app.prompts.registry import render_prompt
 from app.services import usage
-from app.services.providers import IntelligenceTier, chat_model
+from app.services.agent_security import authorize_tool
+from app.services.providers import IntelligenceTier, chat_model, model_trace
+from app.services.resource_governance import resource_cache
 
 Intent = Literal["qa", "web", "quiz", "test", "review", "progress", "plan", "explain", "lecture"]
 INTENTS: tuple[Intent, ...] = (
@@ -52,9 +57,12 @@ def filter_authorized_tasks(
 ) -> tuple["AgentTask", ...]:
     """Remove Web tasks unless configuration and user consent both allow I/O."""
     web_authorized = explicit_web_action or explicit_web_request(question)
-    retained = tuple(
-        task for task in tasks if task.agent != "web" or (web_search_enabled and web_authorized)
+    web_decision = authorize_tool(
+        "web_search",
+        deployment_enabled=web_search_enabled,
+        user_authorized=web_authorized,
     )
+    retained = tuple(task for task in tasks if task.agent != "web" or web_decision.allowed)
     retained_ids = {task.id for task in retained if task.id}
     knowledge_count = sum(task.agent in ("qa", "web") for task in retained)
     return tuple(
@@ -214,12 +222,35 @@ def parse_decision(text: str) -> IntentDecision:
 
 
 async def route_intent(
-    question: str, history: list[tuple[str, str]] | None = None
+    question: str,
+    history: list[tuple[str, str]] | None = None,
+    workspace_id: uuid.UUID | None = None,
 ) -> IntentDecision:
-    prompt = CLASSIFY_PROMPT.format(context=_context(history), question=question)
-    reply = await chat_model(IntelligenceTier.FAST).ainvoke([HumanMessage(prompt)])
-    usage.record_message("router", reply)
-    return parse_decision(reply.text)
+    prompt = await render_prompt(
+        "router.classify",
+        {"context": _context(history), "question": question},
+        workspace_id=workspace_id,
+        step="router",
+    )
+
+    async def classify() -> str:
+        reply = await chat_model(IntelligenceTier.FAST).ainvoke([HumanMessage(prompt.text)])
+        usage.record_message("router", reply)
+        return reply.text
+
+    text = await resource_cache.get_or_compute(
+        namespace="router",
+        workspace_id=workspace_id,
+        key_payload={
+            "question": question,
+            "history": history or [],
+            "prompt": prompt.prompt.metadata(),
+            "model": model_trace(IntelligenceTier.FAST),
+        },
+        ttl_seconds=settings.router_cache_ttl_seconds,
+        compute=classify,
+    )
+    return parse_decision(text)
 
 
 async def classify_intent(question: str, history: list[tuple[str, str]] | None = None) -> Intent:

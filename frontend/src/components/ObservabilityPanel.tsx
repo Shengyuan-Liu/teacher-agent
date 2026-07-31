@@ -58,6 +58,7 @@ export default function ObservabilityPanel({ workspaceId }: { workspaceId: strin
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [replayStage, setReplayStage] = useState('')
+  const [promptMode, setPromptMode] = useState<'current' | 'original'>('current')
 
   const summary = useQuery({
     queryKey: ['observability-summary', workspaceId],
@@ -76,15 +77,20 @@ export default function ObservabilityPanel({ workspaceId }: { workspaceId: strin
   })
   const replay = useMutation({
     mutationFn: (runId: string) =>
-      replayAgentRun(workspaceId, runId, {
-        onStage: (event) => setReplayStage(event.label),
-        onStageResult: () => undefined,
-        onUsage: () => undefined,
-        onDone: () => setReplayStage('Replay completed'),
-        onError: (message) => {
-          throw new Error(message)
+      replayAgentRun(
+        workspaceId,
+        runId,
+        {
+          onStage: (event) => setReplayStage(event.label),
+          onStageResult: () => undefined,
+          onUsage: () => undefined,
+          onDone: () => setReplayStage('Replay completed'),
+          onError: (message) => {
+            throw new Error(message)
+          },
         },
-      }),
+        promptMode,
+      ),
     onSuccess: async (_data, sourceRunId) => {
       const fresh = await api.listAgentRuns(workspaceId)
       queryClient.setQueryData(['agent-runs', workspaceId], fresh)
@@ -190,16 +196,28 @@ export default function ObservabilityPanel({ workspaceId }: { workspaceId: strin
                 trace {selected.trace_id} · root {selected.root_span_id}
               </p>
             </div>
-            <button
-              type="button"
-              disabled={replay.isPending || selected.status !== 'completed'}
-              onClick={() => {
-                setReplayStage('Starting replay…')
-                replay.mutate(selected.id)
-              }}
-            >
-              {replay.isPending ? replayStage || 'Replaying…' : 'Replay input'}
-            </button>
+            <div className="replay-controls">
+              <select
+                value={promptMode}
+                onChange={(event) =>
+                  setPromptMode(event.target.value as 'current' | 'original')
+                }
+                aria-label="Replay prompt versions"
+              >
+                <option value="current">Current prompts</option>
+                <option value="original">Original prompts</option>
+              </select>
+              <button
+                type="button"
+                disabled={replay.isPending || selected.status !== 'completed'}
+                onClick={() => {
+                  setReplayStage('Starting replay…')
+                  replay.mutate(selected.id)
+                }}
+              >
+                {replay.isPending ? replayStage || 'Replaying…' : 'Replay input'}
+              </button>
+            </div>
           </div>
           {selected.replay_comparison && (
             <div className="replay-comparison">
@@ -209,6 +227,9 @@ export default function ObservabilityPanel({ workspaceId }: { workspaceId: strin
               <span>Cost Δ {dollars(selected.replay_comparison.cost_delta_usd)}</span>
               <span>
                 Output {selected.replay_comparison.output_changed ? 'changed' : 'unchanged'}
+              </span>
+              <span>
+                Prompts {selected.replay_comparison.prompts_changed ? 'changed' : 'unchanged'}
               </span>
             </div>
           )}

@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.outline import ensure_outline
 from app.core.database import AsyncSessionLocal
+from app.prompts.registry import render_prompt
 from app.services import usage
 from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
@@ -109,19 +110,19 @@ async def revise_plan(
     if history:
         recent = "\n".join(f"{role}: {content[:300]}" for role, content in history[-4:])
         convo = f"Recent conversation:\n{recent}\n\n"
-    reply = await chat_model(IntelligenceTier.SMART).ainvoke(
-        [
-            HumanMessage(
-                CHAT_PLAN_PROMPT.format(
-                    outline=topics,
-                    current=current or "(none)",
-                    mastery=mastery,
-                    convo=convo,
-                    request=request,
-                )
-            )
-        ]
+    prompt = await render_prompt(
+        "planner.revise",
+        {
+            "outline": topics,
+            "current": current or "(none)",
+            "mastery": mastery,
+            "convo": convo,
+            "request": request,
+        },
+        workspace_id=workspace_id,
+        step="plan_revise",
     )
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt.text)])
     usage.record_message("plan_revise", reply)
     return finalise_stages(parse_stages(reply.text), outline["topics"], daily_minutes, deadline)
 
@@ -147,14 +148,19 @@ async def load_context(state: PlanState) -> dict:
 async def draft(state: PlanState) -> dict:
     topics = _topics_for_prompt(state["outline"])
     deadline_line = f"\nDeadline: {state['deadline']}" if state["deadline"] else ""
-    prompt = DRAFT_PROMPT.format(
-        outline=topics,
-        goal=state["goal"],
-        daily_minutes=state["daily_minutes"],
-        deadline_line=deadline_line,
-        mastery=state["mastery"],
+    prompt = await render_prompt(
+        "planner.draft",
+        {
+            "outline": topics,
+            "goal": state["goal"],
+            "daily_minutes": state["daily_minutes"],
+            "deadline_line": deadline_line,
+            "mastery": state["mastery"],
+        },
+        workspace_id=uuid.UUID(state["workspace_id"]),
+        step="plan_draft",
     )
-    reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt)])
+    reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt.text)])
     usage.record_message("plan_draft", reply)
     return {
         "stages": finalise_stages(
@@ -162,7 +168,8 @@ async def draft(state: PlanState) -> dict:
             state["outline"]["topics"],
             state["daily_minutes"],
             date.fromisoformat(state["deadline"]) if state["deadline"] else None,
-        )
+        ),
+        "prompt": prompt.prompt.metadata(),
     }
 
 

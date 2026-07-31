@@ -90,6 +90,8 @@ function JsonImport({
             <option value="structured_output">Structured output</option>
             <option value="rag_retrieval">RAG retrieval</option>
             <option value="multi_agent_coordination">Multi-agent coordination</option>
+            <option value="agent_security">Agent security red team</option>
+            <option value="resource_governance">Resource governance</option>
           </select>
         </label>
       </div>
@@ -266,6 +268,8 @@ export default function EvaluationPanel({ workspaceId }: { workspaceId: string }
               [
                 'router_contract',
                 'structured_output',
+                'agent_security',
+                'resource_governance',
                 'multi_agent_coordination',
               ].includes(suite.name),
             )

@@ -58,9 +58,11 @@ async def _run_graph(
     trace: list[dict],
 ) -> AsyncGenerator[dict, None]:
     order = list(steps)
+    selections: dict[str, dict] = {}
     first = {"agent": agent, "stage": order[0], "label": steps[order[0]]}
     if tier := model_tiers.get(order[0]):
-        first.update(model_trace(tier))
+        selections[order[0]] = model_trace(tier)
+        first.update(selections[order[0]])
     yield _event("stage", first)
 
     async for update in graph.astream(state, stream_mode="updates"):
@@ -71,11 +73,12 @@ async def _run_graph(
             detail = trace_value(payload or {})
             record = {"agent": agent, "stage": node, "label": steps[node], "result": detail}
             if tier := model_tiers.get(node):
-                record.update(model_trace(tier))
+                selection = selections.pop(node, None) or model_trace(tier)
+                record.update(selection)
             trace.append(record)
             result_event = {"stage": node, "result": detail}
             if tier := model_tiers.get(node):
-                result_event.update(model_trace(tier))
+                result_event.update(selection)
             yield _event("stage_result", result_event)
             following = order[order.index(node) + 1 :]
             if following:
@@ -85,7 +88,8 @@ async def _run_graph(
                     "label": steps[following[0]],
                 }
                 if tier := model_tiers.get(following[0]):
-                    next_stage.update(model_trace(tier))
+                    selections[following[0]] = model_trace(tier)
+                    next_stage.update(selections[following[0]])
                 yield _event("stage", next_stage)
 
 
@@ -96,7 +100,7 @@ async def stream_plan(
     daily_minutes: int,
     deadline: date | None,
 ) -> AsyncGenerator[dict, None]:
-    turn = usage.start()
+    turn = usage.start(workspace_id)
     state = {
         "workspace_id": str(workspace_id),
         "user_id": str(user_id),
@@ -140,7 +144,7 @@ async def stream_plan(
 async def stream_quiz(
     workspace_id: uuid.UUID, user_id: uuid.UUID, count: int, topic: str | None
 ) -> AsyncGenerator[dict, None]:
-    turn = usage.start()
+    turn = usage.start(workspace_id)
     state = {
         "workspace_id": str(workspace_id),
         "user_id": str(user_id),

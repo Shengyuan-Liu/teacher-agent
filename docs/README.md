@@ -23,6 +23,10 @@
 | [12-typed-task-dag.md](12-typed-task-dag.md) | Typed Task DAG：显式依赖、拓扑并发、blackboard、超时/重试、失败传播与调用链 |
 | [13-agent-engineering-log.md](13-agent-engineering-log.md) | Agent 工程日志：历次优化、故障根因、解决方案、验证证据、取舍与遗留问题 |
 | [14-multi-agent-benchmark.md](14-multi-agent-benchmark.md) | Multi-Agent 策略矩阵、消融设计、指标、deterministic/live 运行与结论边界 |
+| [15-prompt-registry.md](15-prompt-registry.md) | Prompt Registry：不可变版本、变量契约、hash、workspace override、Eval 快照与 Replay pin |
+| [16-agent-security-red-team.md](16-agent-security-red-team.md) | Agent 安全：威胁模型、输入/上下文/输出策略、工具 consent、审计调用链与红队 CI suite |
+| [17-resource-governance.md](17-resource-governance.md) | 请求级资源治理：预算 reservation、workspace Redis cache、single-flight、分布式熔断与故障注入 Eval |
+| [18-resilience-load-testing.md](18-resilience-load-testing.md) | 50 并发 DAG load、timeout/retry、预算/缓存/熔断故障注入与 HTTP readiness SLO |
 
 ## 阅读顺序建议
 

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -86,4 +86,5 @@ class ObservabilitySummary(BaseModel):
 class ReplayRequest(BaseModel):
     intent: Intent | None = None
     force_web: bool | None = None
+    prompt_mode: Literal["current", "original"] = "current"
     note: str | None = Field(default=None, max_length=500)

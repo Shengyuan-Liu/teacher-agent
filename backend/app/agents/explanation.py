@@ -10,6 +10,7 @@ from app.agents.outline import ensure_outline
 from app.core.database import AsyncSessionLocal
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
 from app.services import usage
+from app.services.agent_security import inspect_agent_output, sanitize_untrusted_content
 from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 
@@ -90,7 +91,8 @@ async def load_explanation_context(state: ExplanationState) -> dict:
 async def generate_explanation(state: ExplanationState) -> dict:
     excerpts = "\n\n".join(
         f"[{index}] ({item.source_title}"
-        f"{' — ' + item.heading if item.heading else ''})\n{item.content[:3000]}"
+        f"{' — ' + item.heading if item.heading else ''})\n"
+        f"{sanitize_untrusted_content(item.content[:3000]).safe_text}"
         for index, item in enumerate(state["context"], 1)
     )
     mastery = (
@@ -112,7 +114,11 @@ async def generate_explanation(state: ExplanationState) -> dict:
         ]
     )
     usage.record_message("explanation_generate", reply)
-    return {"explanation": reply.text}
+    guarded = inspect_agent_output(reply.text)
+    return {
+        "explanation": guarded.safe_text or "",
+        "security": guarded.as_payload(),
+    }
 
 
 def build_explanation_graph():

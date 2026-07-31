@@ -14,6 +14,7 @@ from app.api.v1 import (
     lectures,
     observability,
     plans,
+    prompts,
     sources,
     web_search,
     workspaces,
@@ -65,6 +66,7 @@ for router in (
     plans.router,
     lectures.router,
     observability.router,
+    prompts.router,
     assessments.router,
     web_search.router,
 ):

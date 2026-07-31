@@ -4,7 +4,7 @@ import asyncio
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 TaskAgent = Literal[
     "qa",
@@ -20,7 +20,7 @@ TaskAgent = Literal[
 ]
 TaskKind = Literal["knowledge", "action", "synthesis"]
 TaskStatus = Literal["pending", "running", "completed", "failed", "blocked"]
-TaskEventType = Literal["started", "completed", "failed", "blocked"]
+TaskEventType = Literal["started", "restored", "completed", "failed", "blocked"]
 
 KNOWLEDGE_AGENTS = frozenset({"qa", "web"})
 SYNTHESIS_AGENTS = frozenset({"answer"})
@@ -28,6 +28,10 @@ SYNTHESIS_AGENTS = frozenset({"answer"})
 
 class TaskDAGValidationError(ValueError):
     """Raised when a task graph is structurally or semantically invalid."""
+
+
+class TaskDAGExecutionBusy(RuntimeError):
+    """Raised when another worker still owns the durable execution lease."""
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,36 @@ def _slug(value: str) -> str:
 @dataclass(frozen=True)
 class TaskDAG:
     nodes: tuple[AgentTask, ...]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> TaskDAG:
+        """Rebuild the exact graph persisted before a process interruption."""
+
+        raw_nodes = payload.get("nodes")
+        if not isinstance(raw_nodes, list) or not raw_nodes:
+            raise TaskDAGValidationError("Persisted task DAG has no nodes")
+        nodes = []
+        for raw in raw_nodes:
+            if not isinstance(raw, Mapping):
+                raise TaskDAGValidationError("Persisted task DAG node must be an object")
+            nodes.append(
+                AgentTask(
+                    id=str(raw.get("id") or ""),
+                    agent=str(raw.get("agent") or "qa"),  # type: ignore[arg-type]
+                    kind=str(raw.get("kind") or "knowledge"),  # type: ignore[arg-type]
+                    query=str(raw.get("query") or ""),
+                    depends_on=tuple(str(item) for item in raw.get("depends_on") or ()),
+                    timeout_seconds=float(raw["timeout_seconds"])
+                    if raw.get("timeout_seconds") is not None
+                    else None,
+                    max_attempts=int(raw["max_attempts"])
+                    if raw.get("max_attempts") is not None
+                    else None,
+                )
+            )
+        dag = cls(tuple(nodes))
+        dag.validate()
+        return dag
 
     @classmethod
     def build(
@@ -227,6 +261,8 @@ class TaskDAG:
                     "kind": node.resolved_kind,
                     "query": node.query,
                     "depends_on": list(node.depends_on),
+                    "timeout_seconds": node.timeout_seconds,
+                    "max_attempts": node.max_attempts,
                     "status": statuses.get(node.id, "pending"),
                     "attempts": attempts.get(node.id, 0),
                     **({"error": errors[node.id]} if node.id in errors else {}),
@@ -242,6 +278,8 @@ class TaskBlackboard:
     statuses: dict[str, TaskStatus] = field(default_factory=dict)
     attempts: dict[str, int] = field(default_factory=dict)
     errors: dict[str, str] = field(default_factory=dict)
+    execution_id: str | None = None
+    resumed: bool = False
 
     def result(self, task_id: str) -> Any:
         return self.results[task_id]
@@ -260,6 +298,36 @@ class TaskEvent:
 TaskHandler = Callable[[AgentTask, TaskBlackboard], Awaitable[Any]]
 
 
+@dataclass(frozen=True)
+class TaskCheckpointSnapshot:
+    """Serializable state restored before a durable DAG continues."""
+
+    execution_id: str
+    resumed: bool
+    results: dict[str, Any] = field(default_factory=dict)
+    statuses: dict[str, TaskStatus] = field(default_factory=dict)
+    attempts: dict[str, int] = field(default_factory=dict)
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+class TaskCheckpointStore(Protocol):
+    """Persistence boundary kept outside the orchestration package."""
+
+    async def load(self, dag: TaskDAG) -> TaskCheckpointSnapshot: ...
+
+    async def save(
+        self,
+        node: AgentTask,
+        *,
+        status: TaskStatus,
+        attempts: int,
+        result: Any = None,
+        error: str = "",
+    ) -> None: ...
+
+    async def finish(self, status: Literal["completed", "failed", "interrupted"]) -> None: ...
+
+
 class TaskDAGExecutor:
     """Execute each topological layer concurrently and propagate failures."""
 
@@ -270,11 +338,13 @@ class TaskDAGExecutor:
         *,
         default_timeout_seconds: float = 90,
         default_max_attempts: int = 2,
+        checkpoint_store: TaskCheckpointStore | None = None,
     ) -> None:
         self.dag = dag
         self.handlers = handlers
         self.default_timeout_seconds = default_timeout_seconds
         self.default_max_attempts = max(1, default_max_attempts)
+        self.checkpoint_store = checkpoint_store
         self.blackboard = TaskBlackboard(statuses={node.id: "pending" for node in dag.nodes})
 
     async def _run_node(self, node: AgentTask) -> tuple[bool, Any, str, int]:
@@ -285,8 +355,23 @@ class TaskDAGExecutor:
         max_attempts = max(1, node.max_attempts or self.default_max_attempts)
         timeout = node.timeout_seconds or self.default_timeout_seconds
         last_error = ""
-        for attempt in range(1, max_attempts + 1):
+        prior_attempts = self.blackboard.attempts.get(node.id, 0)
+        if prior_attempts >= max_attempts:
+            return (
+                False,
+                None,
+                self.blackboard.errors.get(node.id, "Maximum attempts already exhausted"),
+                prior_attempts,
+            )
+        for attempt in range(prior_attempts + 1, max_attempts + 1):
             self.blackboard.attempts[node.id] = attempt
+            if self.checkpoint_store is not None:
+                await self.checkpoint_store.save(
+                    node,
+                    status="running",
+                    attempts=attempt,
+                    error=self.blackboard.errors.get(node.id, ""),
+                )
             try:
                 result = await asyncio.wait_for(
                     handler(node, self.blackboard),
@@ -297,52 +382,117 @@ class TaskDAGExecutor:
                 raise
             except Exception as exc:  # noqa: BLE001 - failures become graph state
                 last_error = f"{type(exc).__name__}: {exc}"
+                self.blackboard.errors[node.id] = last_error
+                if self.checkpoint_store is not None:
+                    await self.checkpoint_store.save(
+                        node,
+                        status="running",
+                        attempts=attempt,
+                        error=last_error,
+                    )
         return False, None, last_error, max_attempts
 
     async def run(self) -> AsyncIterator[TaskEvent]:
-        for layer in self.dag.layers():
-            runnable: list[AgentTask] = []
-            for node in layer:
-                failed_dependencies = [
-                    dep
-                    for dep in node.depends_on
-                    if self.blackboard.statuses.get(dep) != "completed"
-                ]
-                if failed_dependencies:
-                    error = "Blocked by failed dependencies: " + ", ".join(failed_dependencies)
-                    self.blackboard.statuses[node.id] = "blocked"
-                    self.blackboard.errors[node.id] = error
-                    yield TaskEvent(
-                        type="blocked",
-                        node=node,
-                        status="blocked",
-                        error=error,
-                    )
-                    continue
+        terminal_status: Literal["completed", "failed", "interrupted"] = "interrupted"
+        if self.checkpoint_store is not None:
+            snapshot = await self.checkpoint_store.load(self.dag)
+            self.blackboard.execution_id = snapshot.execution_id
+            self.blackboard.resumed = snapshot.resumed
+            self.blackboard.results.update(snapshot.results)
+            self.blackboard.statuses.update(snapshot.statuses)
+            self.blackboard.attempts.update(snapshot.attempts)
+            self.blackboard.errors.update(snapshot.errors)
+        try:
+            for layer in self.dag.layers():
+                runnable: list[AgentTask] = []
+                for node in layer:
+                    if self.blackboard.statuses.get(node.id) == "completed":
+                        yield TaskEvent(
+                            type="restored",
+                            node=node,
+                            status="completed",
+                            attempts=self.blackboard.attempts.get(node.id, 0),
+                            result=self.blackboard.results.get(node.id),
+                        )
+                        continue
 
-                self.blackboard.statuses[node.id] = "running"
-                runnable.append(node)
-                yield TaskEvent(type="started", node=node, status="running")
+                    failed_dependencies = [
+                        dep
+                        for dep in node.depends_on
+                        if self.blackboard.statuses.get(dep) != "completed"
+                    ]
+                    if failed_dependencies:
+                        error = "Blocked by failed dependencies: " + ", ".join(failed_dependencies)
+                        self.blackboard.statuses[node.id] = "blocked"
+                        self.blackboard.errors[node.id] = error
+                        if self.checkpoint_store is not None:
+                            await self.checkpoint_store.save(
+                                node,
+                                status="blocked",
+                                attempts=self.blackboard.attempts.get(node.id, 0),
+                                error=error,
+                            )
+                        yield TaskEvent(
+                            type="blocked",
+                            node=node,
+                            status="blocked",
+                            error=error,
+                        )
+                        continue
 
-            outcomes = await asyncio.gather(*(self._run_node(node) for node in runnable))
-            for node, (succeeded, result, error, attempts) in zip(runnable, outcomes, strict=True):
-                if succeeded:
-                    self.blackboard.statuses[node.id] = "completed"
-                    self.blackboard.results[node.id] = result
+                    self.blackboard.statuses[node.id] = "running"
+                    runnable.append(node)
                     yield TaskEvent(
-                        type="completed",
+                        type="started",
                         node=node,
-                        status="completed",
-                        attempts=attempts,
-                        result=result,
+                        status="running",
+                        attempts=self.blackboard.attempts.get(node.id, 0),
                     )
-                else:
-                    self.blackboard.statuses[node.id] = "failed"
-                    self.blackboard.errors[node.id] = error
-                    yield TaskEvent(
-                        type="failed",
-                        node=node,
-                        status="failed",
-                        attempts=attempts,
-                        error=error,
-                    )
+
+                outcomes = await asyncio.gather(*(self._run_node(node) for node in runnable))
+                for node, (succeeded, result, error, attempts) in zip(
+                    runnable, outcomes, strict=True
+                ):
+                    if succeeded:
+                        self.blackboard.statuses[node.id] = "completed"
+                        self.blackboard.results[node.id] = result
+                        self.blackboard.errors.pop(node.id, None)
+                        if self.checkpoint_store is not None:
+                            await self.checkpoint_store.save(
+                                node,
+                                status="completed",
+                                attempts=attempts,
+                                result=result,
+                            )
+                        yield TaskEvent(
+                            type="completed",
+                            node=node,
+                            status="completed",
+                            attempts=attempts,
+                            result=result,
+                        )
+                    else:
+                        self.blackboard.statuses[node.id] = "failed"
+                        self.blackboard.errors[node.id] = error
+                        if self.checkpoint_store is not None:
+                            await self.checkpoint_store.save(
+                                node,
+                                status="failed",
+                                attempts=attempts,
+                                error=error,
+                            )
+                        yield TaskEvent(
+                            type="failed",
+                            node=node,
+                            status="failed",
+                            attempts=attempts,
+                            error=error,
+                        )
+            terminal_status = (
+                "completed"
+                if all(status == "completed" for status in self.blackboard.statuses.values())
+                else "failed"
+            )
+        finally:
+            if self.checkpoint_store is not None:
+                await self.checkpoint_store.finish(terminal_status)

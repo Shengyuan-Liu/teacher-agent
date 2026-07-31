@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -22,7 +23,10 @@ class FakeQueue:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("suite_name", ["structured_output", "router_contract"])
+@pytest.mark.parametrize(
+    "suite_name",
+    ["structured_output", "router_contract", "agent_security", "resource_governance"],
+)
 async def test_starter_suites_pass_without_models(suite_name: str):
     suite = get_suite(suite_name)
     assert suite.info.requires_model is False
@@ -47,8 +51,10 @@ async def test_starter_suites_pass_without_models(suite_name: str):
 def test_suite_registry_exposes_rag_adapter():
     names = {suite.name for suite in list_suites()}
     assert names == {
+        "agent_security",
         "multi_agent_coordination",
         "rag_retrieval",
+        "resource_governance",
         "router_contract",
         "structured_output",
     }
@@ -118,6 +124,19 @@ async def test_live_multi_agent_benchmark_uses_real_tiers_and_usage_ledger(
 
         async def ainvoke(self, messages):
             prompt = messages[-1].content
+            if "independent evaluator" in messages[0].content:
+                return Reply(
+                    json.dumps(
+                        {
+                            "claim_scores": [1, 1],
+                            "citation_coverage": 1,
+                            "order_accuracy": 1,
+                            "coherence": 1,
+                            "reason": "All claims are supported.",
+                        }
+                    ),
+                    "gpt-5.6-terra",
+                )
             if self.tier.value == "smart":
                 return Reply(
                     f"{claims[0]} [W1] {claims[1]} [L1]",
@@ -145,8 +164,9 @@ async def test_live_multi_agent_benchmark_uses_real_tiers_and_usage_ledger(
     assert executed.outcome.passed is True
     assert [stage["tier"] for stage in executed.outcome.output["stages"]].count("fast") == 2
     assert [stage["tier"] for stage in executed.outcome.output["stages"]].count("smart") == 1
-    assert executed.usage_payload["total_tokens"] == 90
-    assert len(executed.usage_payload["calls"]) == 3
+    assert executed.usage_payload["total_tokens"] == 120
+    assert len(executed.usage_payload["calls"]) == 4
+    assert executed.outcome.details["judge"]["claim_scores"] == [1.0, 1.0]
 
 
 def test_baseline_comparison_only_gates_configured_regressions():

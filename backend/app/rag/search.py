@@ -5,13 +5,19 @@ an agent's default tool set — the QA graph exposes it solely on the turn the
 user opted in (see docs/02-features.md 2.9 and the red line in CLAUDE.md).
 """
 
+import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from urllib.parse import urlsplit
 
 import httpx
 
 from app.core.config import settings
+from app.services.resource_governance import (
+    CircuitOpenError,
+    circuit_breaker,
+    resource_cache,
+)
 
 
 @dataclass(frozen=True)
@@ -46,7 +52,8 @@ class TavilyProvider(SearchProvider):
         payload: dict = {"query": query, "max_results": top_k, "search_depth": "basic"}
         if site_filter:
             payload["include_domains"] = site_filter
-        try:
+
+        async def request() -> dict:
             async with httpx.AsyncClient(timeout=settings.web_search_timeout) as client:
                 resp = await client.post(
                     self.ENDPOINT,
@@ -54,8 +61,11 @@ class TavilyProvider(SearchProvider):
                     headers={"Authorization": f"Bearer {self._api_key}"},
                 )
                 resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPError as exc:
+                return resp.json()
+
+        try:
+            data = await circuit_breaker.call("web_search:tavily", request)
+        except (httpx.HTTPError, CircuitOpenError, ValueError) as exc:
             raise WebSearchError(str(exc)) from exc
 
         results = []
@@ -72,6 +82,32 @@ class TavilyProvider(SearchProvider):
                 )
             )
         return results
+
+
+async def cached_search(
+    provider: SearchProvider,
+    *,
+    workspace_id: uuid.UUID | None,
+    query: str,
+    top_k: int,
+    site_filter: list[str] | None = None,
+) -> list[SearchResult]:
+    """Workspace-isolated, short-lived search cache with single-flight."""
+
+    return await resource_cache.get_or_compute(
+        namespace="web_search",
+        workspace_id=workspace_id,
+        key_payload={
+            "provider": settings.search_provider,
+            "query": query,
+            "top_k": top_k,
+            "site_filter": sorted(site_filter or []),
+        },
+        ttl_seconds=settings.web_search_cache_ttl_seconds,
+        compute=lambda: provider.search(query, top_k, site_filter),
+        serialize=lambda results: [asdict(item) for item in results],
+        deserialize=lambda rows: [SearchResult(**item) for item in rows],
+    )
 
 
 def get_search_provider() -> SearchProvider:

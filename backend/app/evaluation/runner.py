@@ -33,7 +33,7 @@ async def execute_case(
 ) -> ExecutedCase:
     """Pure suite entry point shared by database runs, tests and the fast CLI."""
     suite = get_suite(suite_name)
-    ledger = usage.start()
+    ledger = usage.start(workspace_id)
     started = perf_counter()
     try:
         outcome = await suite.evaluate(
@@ -195,6 +195,7 @@ async def run_evaluation(db: AsyncSession, run_id: uuid.UUID) -> EvalRun:
                 details={
                     **(outcome.details if outcome is not None else {}),
                     "usage_calls": payload.get("calls", []),
+                    "prompt_usage": payload.get("prompts", {}),
                 },
                 latency_ms=executed.latency_ms,
                 input_tokens=int(payload.get("input_tokens", 0)),

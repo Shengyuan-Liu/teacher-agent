@@ -18,7 +18,9 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import AgentRun, AgentSpan, ChatSession, Message
+from app.prompts.registry import active_prompt_manifest
 from app.services import usage
+from app.services.agent_security import SECURITY_POLICY_VERSION
 from app.services.providers import IntelligenceTier, model_trace
 from app.services.telemetry import tracer
 from app.services.trace import trace_value
@@ -169,6 +171,28 @@ class AgentTraceRecorder:
                     "embedding_provider": settings.embedding_provider,
                     "embedding_model": settings.embedding_model,
                     "reranker": settings.reranker,
+                    "prompts": await active_prompt_manifest(session.workspace_id),
+                    "security_policy_version": SECURITY_POLICY_VERSION,
+                    "resource_governance": {
+                        "policy_version": "1.0.0",
+                        "budget": {
+                            "enabled": settings.resource_budget_enabled,
+                            "max_model_calls": settings.turn_budget_max_model_calls,
+                            "max_tokens": settings.turn_budget_max_tokens,
+                            "max_cost_usd": settings.turn_budget_max_cost_usd,
+                            "soft_ratio": settings.turn_budget_soft_ratio,
+                        },
+                        "cache": {
+                            "enabled": settings.resource_cache_enabled,
+                            "router_ttl_seconds": settings.router_cache_ttl_seconds,
+                            "web_search_ttl_seconds": settings.web_search_cache_ttl_seconds,
+                        },
+                        "circuit_breaker": {
+                            "enabled": settings.circuit_breaker_enabled,
+                            "failure_threshold": settings.circuit_breaker_failure_threshold,
+                            "recovery_seconds": settings.circuit_breaker_recovery_seconds,
+                        },
+                    },
                 },
                 started_at=started_at,
             )
@@ -334,6 +358,26 @@ class AgentTraceRecorder:
         self.root_span.set_attribute(
             "gen_ai.usage.output_tokens", int(self.usage_payload.get("output_tokens", 0))
         )
+        governance = self.usage_payload.get("resource_governance", {})
+        budget = governance.get("budget", {}) if isinstance(governance, dict) else {}
+        cache = governance.get("cache", {}) if isinstance(governance, dict) else {}
+        breaker = governance.get("circuit_breaker", {}) if isinstance(governance, dict) else {}
+        self.root_span.set_attribute(
+            "teacher.governance.budget.downgraded_calls",
+            int(budget.get("downgraded_calls", 0)),
+        )
+        self.root_span.set_attribute(
+            "teacher.governance.budget.hard_stop",
+            bool(budget.get("hard_stop", False)),
+        )
+        self.root_span.set_attribute(
+            "teacher.governance.cache.hits",
+            int(cache.get("hits", 0)),
+        )
+        self.root_span.set_attribute(
+            "teacher.governance.circuit.events",
+            len(breaker.get("events", [])),
+        )
         self.root_span.end()
 
         async with AsyncSessionLocal() as db:
@@ -354,6 +398,10 @@ class AgentTraceRecorder:
                 row.kind = "idempotency_replay"
             row.intent = self.intent
             row.usage = self.usage_payload
+            row.model_config = {
+                **(row.model_config or {}),
+                "prompts_used": self.usage_payload.get("prompts", {}),
+            }
             row.latency_ms = latency_ms
             row.error = self.error
             row.completed_at = completed_at
@@ -386,6 +434,7 @@ class AgentTraceRecorder:
                     attributes={
                         "replay": self.replay_of_id is not None,
                         "intent": self.intent,
+                        "resource_governance": governance,
                     },
                     input_json=row.input_json,
                     output_json=row.output_json,
@@ -440,7 +489,14 @@ class AgentTraceRecorder:
                         kind="model_call",
                         status="completed",
                         model=call.get("model"),
-                        attributes={"accounting_source": "usage_ledger"},
+                        attributes={
+                            "accounting_source": "usage_ledger",
+                            **(
+                                {"prompt": call["prompt"]}
+                                if isinstance(call.get("prompt"), dict)
+                                else {}
+                            ),
+                        },
                         input_tokens=int(call.get("input_tokens", 0)),
                         output_tokens=int(call.get("output_tokens", 0)),
                         cost_usd=call.get("cost_usd"),

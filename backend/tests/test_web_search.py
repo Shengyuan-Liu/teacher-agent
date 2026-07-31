@@ -183,9 +183,9 @@ async def test_router_returns_clarification_for_ambiguous_request(monkeypatch):
     assert decision.needs_clarification is True
     assert decision.intent == "quiz"
     assert decision.alternatives == ("test", "explain")
-    assert [item["intent"] for item in router.clarification_options(
-        decision, web_search_enabled=False
-    )] == ["quiz", "test", "explain"]
+    assert [
+        item["intent"] for item in router.clarification_options(decision, web_search_enabled=False)
+    ] == ["quiz", "test", "explain"]
 
 
 async def test_router_builds_web_and_rag_task_plan(monkeypatch):
@@ -220,12 +220,18 @@ def test_web_requires_explicit_code_level_consent():
         AgentTask("web", "Who was Poisson?"),
         AgentTask("qa", "What does the textbook say about Poisson?"),
     )
-    assert [task.agent for task in filter_authorized_tasks(
-        planned, "介绍 Poisson 并检查教材", web_search_enabled=True
-    )] == ["qa"]
-    assert [task.agent for task in filter_authorized_tasks(
-        planned, "上网搜索 Poisson 并检查教材", web_search_enabled=True
-    )] == ["web", "qa"]
+    assert [
+        task.agent
+        for task in filter_authorized_tasks(
+            planned, "介绍 Poisson 并检查教材", web_search_enabled=True
+        )
+    ] == ["qa"]
+    assert [
+        task.agent
+        for task in filter_authorized_tasks(
+            planned, "上网搜索 Poisson 并检查教材", web_search_enabled=True
+        )
+    ] == ["web", "qa"]
 
 
 def test_provider_without_key_raises(monkeypatch):

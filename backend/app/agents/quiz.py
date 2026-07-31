@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChunkParent, Source
 from app.rag.retriever import RetrievalConfig, retrieve
 from app.services import usage
+from app.services.agent_security import inspect_agent_output, sanitize_untrusted_content
 from app.services.mastery import mastery_summary
 from app.services.providers import IntelligenceTier, chat_model
 
@@ -133,7 +134,7 @@ async def gather(state: QuizState) -> dict:
 async def generate(state: QuizState) -> dict:
     excerpts = "\n\n".join(
         f"[{i}] ({s['title']}{' — ' + s['heading'] if s['heading'] else ''})\n"
-        + s["content"][:2500]
+        + (sanitize_untrusted_content(s["content"][:2500]).safe_text or "")
         for i, s in enumerate(state["sections"], 1)
     )
     prompt = GENERATE_PROMPT.format(
@@ -145,7 +146,8 @@ async def generate(state: QuizState) -> dict:
     )
     reply = await chat_model(IntelligenceTier.SMART).ainvoke([HumanMessage(prompt)])
     usage.record_message("quiz_generate", reply)
-    match = re.search(r"\{.*\}", reply.text, re.S)
+    guarded = inspect_agent_output(reply.text)
+    match = re.search(r"\{.*\}", guarded.safe_text or "", re.S)
     if not match:
         raise ValueError("The quiz reply was not valid JSON")
     return {"raw": json.loads(match.group(0)).get("questions", [])}
@@ -217,7 +219,9 @@ async def judge_grounding(questions: list[dict], sections: list[dict]) -> set[in
     items = []
     for index, question in enumerate(questions, 1):
         source_index = int(question["source"]["index"])
-        excerpt = sections[source_index - 1]["content"][:3000]
+        excerpt = (
+            sanitize_untrusted_content(sections[source_index - 1]["content"][:3000]).safe_text or ""
+        )
         items.append(
             f"Question {index}: {question['stem']}\n"
             f"Stated answer: {json.dumps(question['answer'], ensure_ascii=False)}\n"

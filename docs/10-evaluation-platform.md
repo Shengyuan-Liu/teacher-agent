@@ -22,6 +22,7 @@ flowchart LR
     S --> RC[Router Contract]
     S --> RG[RAG Retrieval]
     S --> MA[Multi-Agent Coordination]
+    S --> AS[Agent Security Red Team]
     R --> O[(Run / Result)]
     O --> B[Baseline Comparator]
     B --> UI
@@ -49,13 +50,18 @@ Dataset 在 Workspace 内隔离并归属当前用户。删除 Dataset 会级联�
 | `router_contract` | 确定性 | contract、intent、task plan accuracy | 验证 Router 输出解析、澄清判断、Web → RAG 多 Agent 顺序和 action 组合保护 |
 | `rag_retrieval` | 真实 Workspace | Recall@1/3/5、MRR | 复用现有 dense / sparse / RRF / rerank 变体，评估真实检索链 |
 | `multi_agent_coordination` | 确定性 / 真实模型 | quality、claim/citation/order、latency/cost efficiency | 对比 single-agent、Typed DAG、顺序 DAG 和无 synthesis 消融 |
+| `agent_security` | 确定性红队 | attack resistance、benign preservation、injection/leak/tool consent | 验证输入拒绝、间接注入隔离、输出脱敏和显式工具授权 |
+| `resource_governance` | 确定性故障注入 | budget enforcement、cache isolation、circuit recovery | 验证 reservation、软降级、硬停止、tenant key 和 half-open 单 probe |
 
 `router_contract` 不调用模型，它验证模型输出到执行计划之间的契约，因此适合每次 CI。Router 的真实语义准确率需要另建带用户 query 的 model-based suite；不能用 parser 测试冒充。
 
 `multi_agent_coordination` 使用同一 question、Web/Local evidence 和 expected claims
 改变协调策略。deterministic 模式进入 CI；live 模式调用实际 Fast/Smart 模型并记录
 真实 token、成本和关键路径。完整实验契约见
-[Multi-Agent Benchmark](14-multi-agent-benchmark.md)。
+[Multi-Agent Benchmark](14-multi-agent-benchmark.md)。安全 suite 与运行时共用相同策略，
+完整威胁模型见 [Agent 安全与红队评测](16-agent-security-red-team.md)。资源治理 suite
+直接复用生产预算与 breaker 状态机，设计见
+[成本预算、缓存与熔断](17-resource-governance.md)。
 
 ## 运行与回归规则
 
@@ -84,7 +90,7 @@ Dataset 的 `thresholds` 支持：
 
 Workspace 的 `Evaluations` 页可以：
 
-- 创建 Router / Structured Output starter golden set；
+- 创建 Router / Structured Output / Agent Security starter golden set；
 - 导入自定义 JSON cases；
 - 启动异步评测；
 - 自动选择同 Dataset 最近完成的 Run 作为 baseline；
@@ -107,7 +113,7 @@ GET    /workspaces/{id}/evals/runs/{run_id}
 ## CI 分层
 
 ```bash
-# 16 个无网络、无数据库、无模型的 golden/adversarial/coordination cases
+# 30 个无网络、无数据库、无模型的 golden/adversarial/security/coordination cases
 make eval-fast
 
 # 完整单元与集成测试

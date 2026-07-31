@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models import ChunkParent, Source, Workspace
 from app.services import usage
+from app.services.agent_security import inspect_agent_output, sanitize_untrusted_content
 from app.services.providers import IntelligenceTier, chat_model
 
 log = structlog.get_logger()
@@ -97,7 +98,7 @@ def _render_structure(rows: list[tuple[str, int, str | None, str]]) -> str:
         blocks.append("Ordered document excerpts (headings were not preserved):")
         for index, (position, _, content) in enumerate(chunks):
             limit = LEAD_CHARS if index < LEAD_CHUNKS else EXCERPT_CHARS
-            excerpt = content.strip()[:limit]
+            excerpt = sanitize_untrusted_content(content.strip()[:limit]).safe_text or ""
             if excerpt:
                 blocks.append(f"[document position {position}]\n{excerpt}")
 
@@ -113,7 +114,7 @@ async def build_outline(workspace_id: uuid.UUID) -> dict:
         [HumanMessage(PROMPT.format(headings=headings))]
     )
     usage.record_message("outline", reply)
-    parsed = _parse(reply.text)
+    parsed = _parse(inspect_agent_output(reply.text).safe_text or "")
     if parsed is None:
         raise ValueError("The outline reply was not valid JSON")
 

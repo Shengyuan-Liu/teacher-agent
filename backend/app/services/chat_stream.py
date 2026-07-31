@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import re
 import uuid
@@ -36,6 +37,7 @@ from app.agents.router import (
 from app.agents.task_dag import (
     TaskBlackboard,
     TaskDAG,
+    TaskDAGExecutionBusy,
     TaskDAGExecutor,
     TaskDAGValidationError,
 )
@@ -51,6 +53,7 @@ from app.models import (
     StudyPlan,
     TopicMastery,
 )
+from app.prompts.registry import prompt_for_step, render_prompt
 from app.rag.retriever import RetrievedChunk
 from app.services import usage
 from app.services.agent_observability import AgentTraceRecorder
@@ -59,10 +62,21 @@ from app.services.agent_runs import (
     EXPLANATION_STEPS,
     QUIZ_STEPS,
 )
+from app.services.agent_security import (
+    assess_untrusted_collection,
+    assess_user_query,
+    inspect_agent_output,
+    sanitize_untrusted_content,
+)
 from app.services.assessment import create_assessment_from_bank
 from app.services.mastery import record_mastery
 from app.services.providers import IntelligenceTier, chat_model, model_trace
 from app.services.rate_limit import over_rate_limit
+from app.services.resource_governance import resource_payload
+from app.services.task_checkpoints import (
+    PostgresTaskCheckpointStore,
+    load_persisted_task_dag,
+)
 from app.services.trace import trace_value
 
 log = structlog.get_logger()
@@ -90,6 +104,18 @@ Rules:
 
 def _cited_numbers(answer: str) -> set[int]:
     return {int(n) for n in CITED.findall(answer)}
+
+
+def _resource_events(stage, stage_result) -> list[dict]:
+    return [
+        stage("resource_summary", "Final resource decision", agent_name="governance"),
+        stage_result(
+            "resource_summary",
+            "Final resource decision",
+            resource_payload(),
+            agent_name="governance",
+        ),
+    ]
 
 
 _QUIZ_TYPE_LABELS = {
@@ -302,6 +328,8 @@ async def _run_quiz(
     yield {"event": "token", "data": json.dumps({"delta": content})}
     yield {"event": "citations", "data": json.dumps(citations)}
     yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -399,6 +427,8 @@ async def _run_test(
     content = f"正式测试已准备好：{len(questions)} 道题，限时 {minutes} 分钟。完成后统一提交评分。"
     yield {"event": "token", "data": json.dumps({"delta": content})}
     yield {"event": "artifact", "data": json.dumps(artifact)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -483,6 +513,8 @@ async def _run_review_or_progress(
     yield stage_result("load", label, result)
     yield {"event": "token", "data": json.dumps({"delta": content})}
     yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -584,7 +616,7 @@ async def _run_plan(
     yield stage_result(
         "revise",
         PLAN_CHAT_STEPS["revise"],
-        {"stages": stages},
+        {"stages": stages, "prompt": prompt_for_step("plan_revise")},
         tier=PLAN_MODEL_TIERS["revise"],
     )
 
@@ -617,6 +649,8 @@ async def _run_plan(
 
     content = _render_plan(stages, done_titles)
     yield {"event": "token", "data": json.dumps({"delta": content})}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -690,6 +724,8 @@ async def _run_explanation(
         yield {"event": "citations", "data": json.dumps(citations)}
     artifact = {"type": "knowledge_graph", "graph": results["graph"]}
     yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -932,6 +968,8 @@ async def _run_lecture_interruption(
         yield {"event": "citations", "data": json.dumps(citations)}
     artifact = _lecture_artifact(lecture)
     yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     message_id = await _save_lecture_message(session.id, answer, citations, artifact, spent, trace)
@@ -1057,7 +1095,14 @@ async def _run_lecture(
             IntelligenceTier.FAST,
         )
         try:
-            decision = await classify_lecture_input(question, lecture.pending_check["question"])
+            classify_kwargs = (
+                {"workspace_id": session.workspace_id}
+                if "workspace_id" in inspect.signature(classify_lecture_input).parameters
+                else {}
+            )
+            decision = await classify_lecture_input(
+                question, lecture.pending_check["question"], **classify_kwargs
+            )
             kind, confidence, reason = decision[:3]
             decision_metadata = decision[3] if len(decision) > 3 else {}
         except Exception as exc:
@@ -1075,6 +1120,7 @@ async def _run_lecture(
                 "confidence": confidence,
                 "reason": reason,
                 **decision_metadata,
+                "prompt": prompt_for_step("lecture_classify_input"),
             },
             "lecture",
             IntelligenceTier.FAST,
@@ -1093,8 +1139,16 @@ async def _run_lecture(
             IntelligenceTier.SMART,
         )
         try:
+            grade_kwargs = (
+                {"workspace_id": session.workspace_id}
+                if "workspace_id" in inspect.signature(grade_lecture_answer).parameters
+                else {}
+            )
             grade = await grade_lecture_answer(
-                question, lecture.pending_check, language.instruction(question)
+                question,
+                lecture.pending_check,
+                language.instruction(question),
+                **grade_kwargs,
             )
             score, feedback = grade[:2]
             grade_metadata = grade[2] if len(grade) > 2 else {}
@@ -1127,7 +1181,12 @@ async def _run_lecture(
         yield stage_result(
             "lecture_grade_check",
             "Assessing understanding before advancing",
-            {"score": score, "feedback": feedback, **grade_metadata},
+            {
+                "score": score,
+                "feedback": feedback,
+                **grade_metadata,
+                "prompt": prompt_for_step("lecture_grade_check"),
+            },
             "lecture",
             IntelligenceTier.SMART,
         )
@@ -1235,6 +1294,7 @@ async def _run_lecture(
                             "section_format_recovered", False
                         ),
                         "section_recovery_method": (payload or {}).get("section_recovery_method"),
+                        "prompt": (payload or {}).get("prompt"),
                         "pending_check": {
                             "question": check.get("question"),
                             "source": check.get("source"),
@@ -1348,6 +1408,7 @@ async def _run_multi_agent(
     question: str,
     history: list[tuple[str, str]],
     dag: TaskDAG,
+    execution_key: uuid.UUID,
     stage,
     stage_result,
     trace: list[dict],
@@ -1383,8 +1444,20 @@ async def _run_multi_agent(
         nonlocal remaining_context_chars, source_number
         if task.id in summarized_tasks:
             return next(item for item in collection_summary if item["task_id"] == task.id)
+        security_results = []
         if task.agent == "qa":
-            chunks: list[RetrievedChunk] = payload.get("context", [])
+            chunks = [
+                chunk
+                if isinstance(chunk, RetrievedChunk)
+                else RetrievedChunk(
+                    **{
+                        field: chunk.get(field)
+                        for field in RetrievedChunk.__dataclass_fields__
+                        if field in chunk
+                    }
+                )
+                for chunk in payload.get("context", [])
+            ]
             citations = _citations_payload(chunks)
             before_sources = source_number
             for chunk, citation in zip(chunks, citations, strict=True):
@@ -1398,7 +1471,10 @@ async def _run_multi_agent(
                     if chunk.heading
                     else chunk.source_title
                 )
-                excerpt = chunk.content[: min(4000, remaining_context_chars)]
+                raw_excerpt = chunk.content[: min(4000, remaining_context_chars)]
+                security = sanitize_untrusted_content(raw_excerpt)
+                security_results.append(security)
+                excerpt = security.safe_text or ""
                 remaining_context_chars -= len(excerpt)
                 context_blocks.append(f"[{source_number}] [LOCAL MATERIAL] ({where})\n{excerpt}")
             summary = {
@@ -1422,7 +1498,10 @@ async def _run_multi_agent(
                     citation = dict(original_citation)
                     citation["n"] = source_number
                     web_citations.append(citation)
-                excerpt = page["markdown"][: min(4000, remaining_context_chars)]
+                raw_excerpt = page["markdown"][: min(4000, remaining_context_chars)]
+                security = sanitize_untrusted_content(raw_excerpt)
+                security_results.append(security)
+                excerpt = security.safe_text or ""
                 remaining_context_chars -= len(excerpt)
                 context_blocks.append(
                     f"[{source_number}] [WEB] ({page['title']} — {page['url']})\n{excerpt}"
@@ -1436,6 +1515,17 @@ async def _run_multi_agent(
                 "retrieved_count": len(pages),
                 "pages": pages,
             }
+        findings = [
+            finding.as_payload() for decision in security_results for finding in decision.findings
+        ]
+        summary["security"] = {
+            "action": "quarantine" if findings else "allow",
+            "findings": findings,
+            "quarantined_segments": sum(
+                int(decision.metadata.get("quarantined_segments", 0))
+                for decision in security_results
+            ),
+        }
         collection_summary.append(summary)
         summarized_tasks.add(task.id)
         return summary
@@ -1445,11 +1535,15 @@ async def _run_multi_agent(
         # synthesis node. Keep assembly idempotent because handlers may retry.
         for dependency in task.depends_on:
             summarize_collection(dag.node(dependency), blackboard.result(dependency))
+        prompt = await render_prompt(
+            "answer.multi_source",
+            {"language": language.instruction(question)},
+            workspace_id=session.workspace_id,
+            step="multi_agent_answer",
+        )
         reply = await chat_model(IntelligenceTier.SMART).ainvoke(
             [
-                SystemMessage(
-                    MULTI_AGENT_ANSWER_SYSTEM.format(language=language.instruction(question))
-                ),
+                SystemMessage(prompt.text),
                 HumanMessage(
                     f"Original request:\n{question}\n\nCombined context:\n"
                     "<combined_context>\n"
@@ -1459,17 +1553,26 @@ async def _run_multi_agent(
             ]
         )
         usage.record_message("multi_agent_answer", reply)
+        output_security = inspect_agent_output(reply.text)
         return {
             "collections": collection_summary,
             "source_count": source_number,
-            "answer": reply.text,
+            "answer": output_security.safe_text or "",
+            "prompt": prompt.prompt.metadata(),
+            "security": output_security.as_payload(),
         }
 
+    checkpoint_store = PostgresTaskCheckpointStore(
+        execution_key=execution_key,
+        workspace_id=session.workspace_id,
+        session_id=session.id,
+    )
     executor = TaskDAGExecutor(
         dag,
         {"qa": collect, "web": collect, "answer": synthesize},
         default_timeout_seconds=settings.task_dag_node_timeout_seconds,
         default_max_attempts=settings.task_dag_max_attempts,
+        checkpoint_store=checkpoint_store,
     )
     yield stage("task_dag", "Building execution graph", agent_name="orchestrator")
     yield stage_result(
@@ -1480,77 +1583,103 @@ async def _run_multi_agent(
     )
 
     answer_result: dict[str, object] | None = None
-    async for task_event in executor.run():
-        task = task_event.node
-        label = (
-            "Searching the web"
-            if task.agent == "web"
-            else "Searching material"
-            if task.agent == "qa"
-            else "Answering from combined context"
-        )
-        tier = (
-            IntelligenceTier.FAST
-            if task.agent == "web"
-            else IntelligenceTier.SMART
-            if task.agent == "answer"
-            else None
-        )
-        if task_event.type == "started":
-            yield stage(task.id, label, agent_name=task.agent, tier=tier)
-            continue
-
-        if task_event.type == "completed":
-            result = (
-                summarize_collection(task, task_event.result)
-                if task.agent in ("qa", "web")
-                else task_event.result
+    try:
+        async for task_event in executor.run():
+            task = task_event.node
+            label = (
+                "Searching the web"
+                if task.agent == "web"
+                else "Searching material"
+                if task.agent == "qa"
+                else "Answering from combined context"
             )
-            if task.agent == "answer":
-                answer_result = result
+            tier = (
+                IntelligenceTier.FAST
+                if task.agent == "web"
+                else IntelligenceTier.SMART
+                if task.agent == "answer"
+                else None
+            )
+            if task_event.type == "started":
+                yield stage(task.id, label, agent_name=task.agent, tier=tier)
+                continue
+
+            if task_event.type in ("completed", "restored"):
+                if task_event.type == "restored":
+                    yield stage(
+                        task.id,
+                        f"Restoring checkpoint · {label}",
+                        agent_name=task.agent,
+                        tier=tier,
+                    )
+                result = (
+                    summarize_collection(task, task_event.result)
+                    if task.agent in ("qa", "web")
+                    else task_event.result
+                )
+                if task.agent == "answer":
+                    answer_result = result
+                yield stage_result(
+                    task.id,
+                    label,
+                    {
+                        "task_id": task.id,
+                        "depends_on": list(task.depends_on),
+                        "status": task_event.status,
+                        "checkpoint": task_event.type == "restored",
+                        "execution_id": executor.blackboard.execution_id,
+                        "resumed": executor.blackboard.resumed,
+                        "attempts": task_event.attempts,
+                        **result,
+                        **(
+                            {
+                                "dag": dag.as_payload(
+                                    statuses=executor.blackboard.statuses,
+                                    attempts=executor.blackboard.attempts,
+                                    errors=executor.blackboard.errors,
+                                )
+                            }
+                            if task.agent == "answer"
+                            else {}
+                        ),
+                    },
+                    agent_name=task.agent,
+                    tier=tier,
+                )
+                continue
+
+            failure = {
+                "task_id": task.id,
+                "depends_on": list(task.depends_on),
+                "status": task_event.status,
+                "execution_id": executor.blackboard.execution_id,
+                "resumed": executor.blackboard.resumed,
+                "attempts": task_event.attempts,
+                "error": task_event.error,
+            }
+            # A blocked task never emitted a start event, so add one before its result.
+            if task_event.type == "blocked":
+                yield stage(task.id, label, agent_name=task.agent, tier=tier)
             yield stage_result(
                 task.id,
                 label,
-                {
-                    "task_id": task.id,
-                    "depends_on": list(task.depends_on),
-                    "status": task_event.status,
-                    "attempts": task_event.attempts,
-                    **result,
-                    **(
-                        {
-                            "dag": dag.as_payload(
-                                statuses=executor.blackboard.statuses,
-                                attempts=executor.blackboard.attempts,
-                                errors=executor.blackboard.errors,
-                            )
-                        }
-                        if task.agent == "answer"
-                        else {}
-                    ),
-                },
+                failure,
                 agent_name=task.agent,
                 tier=tier,
             )
-            continue
-
-        failure = {
-            "task_id": task.id,
-            "depends_on": list(task.depends_on),
-            "status": task_event.status,
-            "attempts": task_event.attempts,
-            "error": task_event.error,
+    except TaskDAGExecutionBusy:
+        yield {
+            "event": "done",
+            "data": json.dumps(
+                {
+                    "duplicate": True,
+                    "in_progress": True,
+                    "grounded": False,
+                    "task_dag": dag.as_payload(),
+                }
+            ),
         }
-        # A blocked task never emitted a start event, so add one before its result.
-        if task_event.type == "blocked":
-            yield stage(task.id, label, agent_name=task.agent, tier=tier)
-        yield stage_result(
-            task.id,
-            label,
-            failure,
-            agent_name=task.agent,
-            tier=tier,
-        )
+        return
 
     if answer_result is None:
         failed = [f"{task_id}: {error}" for task_id, error in executor.blackboard.errors.items()]
@@ -1574,6 +1703,8 @@ async def _run_multi_agent(
         yield {"event": "citations", "data": json.dumps(local_citations)}
     for citation in web_citations:
         yield {"event": "web_citation", "data": json.dumps(citation)}
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
     async with AsyncSessionLocal() as db:
@@ -1601,6 +1732,8 @@ async def _run_multi_agent(
                         attempts=executor.blackboard.attempts,
                         errors=executor.blackboard.errors,
                     ),
+                    "task_execution_id": executor.blackboard.execution_id,
+                    "resumed": executor.blackboard.resumed,
                 }
             ),
         }
@@ -1697,7 +1830,9 @@ async def _stream_answer_impl(
     as a silent fallback — an uncovered question declines and offers the button.
     """
     duplicate = False
+    resume_incomplete = False
     duplicate_reply: Message | None = None
+    input_message_id: uuid.UUID | None = None
     async with AsyncSessionLocal() as db:
         session = await db.get(ChatSession, session_id)
         existing_request = (
@@ -1706,8 +1841,8 @@ async def _stream_answer_impl(
             else None
         )
         if existing_request is not None:
-            duplicate = True
             if existing_request.session_id == session_id:
+                input_message_id = existing_request.id
                 duplicate_reply = await db.scalar(
                     select(Message)
                     .where(
@@ -1718,8 +1853,23 @@ async def _stream_answer_impl(
                     .order_by(Message.created_at)
                     .limit(1)
                 )
+                duplicate = duplicate_reply is not None
+                resume_incomplete = duplicate_reply is None
+            else:
+                duplicate = True
         if duplicate:
             history_pairs = []
+        elif resume_incomplete and existing_request is not None:
+            history = await db.scalars(
+                select(Message)
+                .where(
+                    Message.session_id == session_id,
+                    Message.created_at < existing_request.created_at,
+                )
+                .order_by(Message.created_at.desc())
+                .limit(HISTORY_TURNS)
+            )
+            history_pairs = [(m.role, m.content) for m in reversed(list(history))]
         else:
             history = await db.scalars(
                 select(Message)
@@ -1729,14 +1879,15 @@ async def _stream_answer_impl(
             )
             history_pairs = [(m.role, m.content) for m in reversed(list(history))]
 
-            db.add(
-                Message(
-                    session_id=session_id,
-                    role="user",
-                    content=question,
-                    client_request_id=request_id,
-                )
+            input_message = Message(
+                session_id=session_id,
+                role="user",
+                content=question,
+                client_request_id=request_id,
             )
+            db.add(input_message)
+            await db.flush()
+            input_message_id = input_message.id
             if session.title is None:
                 session.title = question[:60]
             try:
@@ -1748,6 +1899,7 @@ async def _stream_answer_impl(
                     select(Message).where(Message.client_request_id == request_id)
                 )
                 if existing_request is not None and existing_request.session_id == session_id:
+                    input_message_id = existing_request.id
                     duplicate_reply = await db.scalar(
                         select(Message)
                         .where(
@@ -1758,11 +1910,14 @@ async def _stream_answer_impl(
                         .order_by(Message.created_at)
                         .limit(1)
                     )
+                    duplicate = duplicate_reply is not None
+                    resume_incomplete = duplicate_reply is None
 
     if duplicate:
         for event in _replay_message_events(duplicate_reply):
             yield event
         return
+    execution_key = request_id or input_message_id or uuid.uuid4()
 
     state = {
         "question": question,
@@ -1781,9 +1936,10 @@ async def _stream_answer_impl(
     web_citations: list[dict] = []
     used_web_search = False
     answer_parts: list[str] = []
+    emitted_answer_chars = 0
     grounded = False
     trace: list[dict] = []
-    turn = usage.start()
+    turn = usage.start(session.workspace_id)
 
     # A pending Lecture check is a durable interrupt. The next free-form user
     # message belongs to that checkpoint unless the UI explicitly selected a
@@ -1798,6 +1954,7 @@ async def _stream_answer_impl(
     # "qa" rather than a hardcoded label. Set once the router decides; the stage
     # helpers read it late so every step is tagged consistently.
     agent = "qa"
+    stage_models: dict[tuple[str, str], dict] = {}
 
     def stage(
         name: str,
@@ -1805,9 +1962,12 @@ async def _stream_answer_impl(
         agent_name: str | None = None,
         tier: IntelligenceTier | None = None,
     ) -> dict:
-        payload = {"agent": agent_name or agent, "stage": name, "label": label}
+        resolved_agent = agent_name or agent
+        payload = {"agent": resolved_agent, "stage": name, "label": label}
         if tier is not None:
-            payload.update(model_trace(tier))
+            selection = model_trace(tier)
+            stage_models[(resolved_agent, name)] = selection
+            payload.update(selection)
         return {
             "event": "stage",
             "data": json.dumps(payload),
@@ -1821,32 +1981,103 @@ async def _stream_answer_impl(
         tier: IntelligenceTier | None = None,
     ) -> dict:
         detail = trace_value(result)
+        resolved_agent = agent_name or agent
         record = {
-            "agent": agent_name or agent,
+            "agent": resolved_agent,
             "stage": name,
             "label": label,
             "result": detail,
         }
         if tier is not None:
-            record.update(model_trace(tier))
+            selection = stage_models.pop((resolved_agent, name), None) or model_trace(tier)
+            record.update(selection)
         trace.append(record)
         payload = {"stage": name, "result": detail}
         if tier is not None:
-            payload.update(model_trace(tier))
+            payload.update(selection)
         return {
             "event": "stage_result",
             "data": json.dumps(payload, ensure_ascii=False),
         }
 
+    input_security = assess_user_query(question)
+    yield stage(
+        "security_input",
+        "Checking Agent security policy",
+        agent_name="security",
+    )
+    yield stage_result(
+        "security_input",
+        "Checking Agent security policy",
+        input_security.as_payload(),
+        agent_name="security",
+    )
+    if not input_security.allowed:
+        content = input_security.safe_text or ""
+        yield {"event": "token", "data": json.dumps({"delta": content}, ensure_ascii=False)}
+        for event in _resource_events(stage, stage_result):
+            yield event
+        spent = turn.as_payload()
+        yield {"event": "usage", "data": json.dumps(spent)}
+        async with AsyncSessionLocal() as db:
+            message = Message(
+                session_id=session.id,
+                role="assistant",
+                content=content,
+                citations=None,
+                web_citations=[],
+                used_web_search=False,
+                usage=spent,
+                trace=trace,
+                artifacts={
+                    "type": "security_refusal",
+                    "policy": input_security.as_payload(),
+                },
+            )
+            db.add(message)
+            await db.commit()
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "message_id": str(message.id),
+                        "grounded": False,
+                        "security_blocked": True,
+                    }
+                ),
+            }
+        return
+
+    yield stage(
+        "resource_policy",
+        "Applying turn budget and resilience policy",
+        agent_name="governance",
+    )
+    yield stage_result(
+        "resource_policy",
+        "Applying turn budget and resilience policy",
+        resource_payload(),
+        agent_name="governance",
+    )
+
     # Show the router immediately while its model call is running. Web is still
     # selected only when the deployment allows it and this turn explicitly asks.
-    explicitly_routed = force_web or intent_override is not None or waiting_lecture is not None
+    persisted_dag = await load_persisted_task_dag(execution_key) if resume_incomplete else None
+    explicitly_routed = (
+        force_web
+        or intent_override is not None
+        or waiting_lecture is not None
+        or persisted_dag is not None
+    )
     router_tier = None if explicitly_routed else IntelligenceTier.FAST
     yield stage("router", "Understanding request", agent_name="router", tier=router_tier)
     intent: Intent = "qa"
     tasks: tuple[AgentTask, ...] = ()
     decision = None
-    if waiting_lecture is not None:
+    if persisted_dag is not None:
+        tasks = persisted_dag.nodes
+        intent = persisted_dag.worker_nodes[0].agent
+    elif waiting_lecture is not None:
         intent = "lecture"
         tasks = (AgentTask("lecture", question),)
     elif force_web and settings.web_search_enabled:
@@ -1858,7 +2089,7 @@ async def _stream_answer_impl(
     else:
         # History lets the router route follow-ups ("后面没了，补全" after a plan)
         # to the right agent instead of defaulting each turn to qa.
-        decision = await route_intent(question, history_pairs)
+        decision = await route_intent(question, history_pairs, session.workspace_id)
         if decision.needs_clarification:
             options = clarification_options(
                 decision, web_search_enabled=settings.web_search_enabled
@@ -1877,6 +2108,7 @@ async def _stream_answer_impl(
                     "alternatives": list(decision.alternatives),
                     "reason": decision.reason,
                     "action": "ask_user",
+                    "prompt": prompt_for_step("router"),
                 },
                 agent_name="router",
                 tier=router_tier,
@@ -1884,6 +2116,8 @@ async def _stream_answer_impl(
             content = artifact["question"]
             yield {"event": "token", "data": json.dumps({"delta": content})}
             yield {"event": "artifact", "data": json.dumps(artifact, ensure_ascii=False)}
+            for event in _resource_events(stage, stage_result):
+                yield event
             spent = turn.as_payload()
             yield {"event": "usage", "data": json.dumps(spent)}
             async with AsyncSessionLocal() as db:
@@ -1909,39 +2143,50 @@ async def _stream_answer_impl(
             return
         intent = decision.intent or "qa"
         tasks = decision.tasks or (AgentTask(intent, question),)
-    web_authorized = force_web or intent_override == "web" or explicit_web_request(question)
-    tasks = filter_authorized_tasks(
-        tasks,
-        question,
-        web_search_enabled=settings.web_search_enabled,
-        explicit_web_action=force_web or intent_override == "web",
+    web_authorized = (
+        force_web
+        or intent_override == "web"
+        or explicit_web_request(question)
+        or (
+            persisted_dag is not None
+            and any(task.agent == "web" for task in persisted_dag.worker_nodes)
+        )
     )
-    if not tasks:
-        intent = "qa"
-        tasks = (AgentTask("qa", question),)
-    try:
-        dag = TaskDAG.build(
+    if persisted_dag is not None:
+        dag = persisted_dag
+    else:
+        tasks = filter_authorized_tasks(
             tasks,
-            original_query=question,
-            max_nodes=settings.task_dag_max_nodes,
-            default_timeout_seconds=settings.task_dag_node_timeout_seconds,
-            default_max_attempts=settings.task_dag_max_attempts,
+            question,
+            web_search_enabled=settings.web_search_enabled,
+            explicit_web_action=force_web or intent_override == "web",
         )
-    except TaskDAGValidationError as exc:
-        log.warning(
-            "chat.invalid_router_task_dag",
-            session_id=str(session.id),
-            error=str(exc),
-        )
-        intent = "qa"
-        tasks = (AgentTask("qa", question),)
-        dag = TaskDAG.build(
-            tasks,
-            original_query=question,
-            max_nodes=settings.task_dag_max_nodes,
-            default_timeout_seconds=settings.task_dag_node_timeout_seconds,
-            default_max_attempts=settings.task_dag_max_attempts,
-        )
+        if not tasks:
+            intent = "qa"
+            tasks = (AgentTask("qa", question),)
+        try:
+            dag = TaskDAG.build(
+                tasks,
+                original_query=question,
+                max_nodes=settings.task_dag_max_nodes,
+                default_timeout_seconds=settings.task_dag_node_timeout_seconds,
+                default_max_attempts=settings.task_dag_max_attempts,
+            )
+        except TaskDAGValidationError as exc:
+            log.warning(
+                "chat.invalid_router_task_dag",
+                session_id=str(session.id),
+                error=str(exc),
+            )
+            intent = "qa"
+            tasks = (AgentTask("qa", question),)
+            dag = TaskDAG.build(
+                tasks,
+                original_query=question,
+                max_nodes=settings.task_dag_max_nodes,
+                default_timeout_seconds=settings.task_dag_node_timeout_seconds,
+                default_max_attempts=settings.task_dag_max_attempts,
+            )
     worker_tasks = dag.worker_nodes
     if len(worker_tasks) == 1:
         intent = worker_tasks[0].agent
@@ -1983,12 +2228,15 @@ async def _stream_answer_impl(
             "reason": (
                 decision.reason
                 if decision
+                else "resuming a durable task DAG checkpoint"
+                if persisted_dag is not None
                 else "resuming a durable lecture checkpoint"
                 if waiting_lecture is not None
                 else "explicit user selection"
             ),
             "web_search_enabled": settings.web_search_enabled,
             "web_authorized_by_user": web_authorized,
+            "prompt": prompt_for_step("router"),
         },
         agent_name="router",
         tier=router_tier,
@@ -2009,7 +2257,15 @@ async def _stream_answer_impl(
 
     if dag.synthesis_node is not None:
         async for event in _run_multi_agent(
-            session, question, history_pairs, dag, stage, stage_result, trace, turn
+            session,
+            question,
+            history_pairs,
+            dag,
+            execution_key,
+            stage,
+            stage_result,
+            trace,
+            turn,
         ):
             yield event
         return
@@ -2077,12 +2333,33 @@ async def _stream_answer_impl(
                     and chunk.text
                 ):
                     answer_parts.append(chunk.text)
-                    yield {"event": "token", "data": json.dumps({"delta": chunk.text})}
+                    raw_answer = "".join(answer_parts)
+                    interim_security = inspect_agent_output(raw_answer)
+                    if interim_security.action == "allow":
+                        safe_upto = max(0, len(raw_answer) - 128)
+                        if safe_upto > emitted_answer_chars:
+                            delta = raw_answer[emitted_answer_chars:safe_upto]
+                            emitted_answer_chars = safe_upto
+                            yield {
+                                "event": "token",
+                                "data": json.dumps({"delta": delta}),
+                            }
             elif mode == "updates":
                 if "retrieve" in payload:
                     context = payload["retrieve"]["context"]
                     citations = _citations_payload(context)
                     yield stage_result("retrieve", "Searching material", payload["retrieve"])
+                    yield stage(
+                        "security_context",
+                        "Scanning retrieved context",
+                        agent_name="security",
+                    )
+                    yield stage_result(
+                        "security_context",
+                        "Scanning retrieved context",
+                        assess_untrusted_collection([item.content for item in context]),
+                        agent_name="security",
+                    )
                     grade_tier = IntelligenceTier.FAST if context else None
                     yield stage("grade", "Checking coverage", tier=grade_tier)
                 if "grade" in payload:
@@ -2123,6 +2400,22 @@ async def _stream_answer_impl(
                         payload["web_search"],
                         tier=IntelligenceTier.FAST,
                     )
+                    yield stage(
+                        "security_context",
+                        "Scanning web context",
+                        agent_name="security",
+                    )
+                    yield stage_result(
+                        "security_context",
+                        "Scanning web context",
+                        assess_untrusted_collection(
+                            [
+                                str(item.get("markdown") or "")
+                                for item in payload["web_search"]["web_results"]
+                            ]
+                        ),
+                        agent_name="security",
+                    )
                     web_generate_tier = (
                         IntelligenceTier.SMART if payload["web_search"]["web_results"] else None
                     )
@@ -2157,7 +2450,27 @@ async def _stream_answer_impl(
         yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
         return
 
-    answer = "".join(answer_parts)
+    raw_answer = "".join(answer_parts)
+    output_security = inspect_agent_output(raw_answer)
+    answer = output_security.safe_text or ""
+    if output_security.action == "block" and emitted_answer_chars:
+        answer = f"{raw_answer[:emitted_answer_chars]}\n\n{answer}"
+    yield stage(
+        "security_output",
+        "Checking answer for protected data",
+        agent_name="security",
+    )
+    yield stage_result(
+        "security_output",
+        "Checking answer for protected data",
+        output_security.as_payload(),
+        agent_name="security",
+    )
+    if len(answer) > emitted_answer_chars:
+        yield {
+            "event": "token",
+            "data": json.dumps({"delta": answer[emitted_answer_chars:]}),
+        }
     # Retrieval returns top-k; only what the answer actually referenced belongs
     # in the citation list, or the reader is handed unrelated sources.
     used = _cited_numbers(answer)
@@ -2169,6 +2482,8 @@ async def _stream_answer_impl(
     if used and used_web_search:
         web_citations = [c for c in web_citations if c["n"] in used]
 
+    for event in _resource_events(stage, stage_result):
+        yield event
     spent = turn.as_payload()
     yield {"event": "usage", "data": json.dumps(spent)}
 

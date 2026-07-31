@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.api.deps import get_current_user, get_owned_workspace
 from app.core.database import AsyncSessionLocal, get_db
 from app.models import AgentRun, AgentSpan, ChatSession, Message, User, Workspace
+from app.prompts.registry import reset_prompt_pins, set_prompt_pins
 from app.schemas.observability import (
     AgentRunResponse,
     ObservabilitySummary,
@@ -61,6 +62,10 @@ def _run_payload(row: AgentRun, *, detail: bool = False) -> dict[str, Any]:
                 else None
             ),
             "output_changed": row.output_json.get("content") != before.output_json.get("content"),
+            "prompts_changed": (
+                current_usage.get("prompts", {}).get("manifest", [])
+                != before_usage.get("prompts", {}).get("manifest", [])
+            ),
         }
     return {
         "id": row.id,
@@ -280,8 +285,20 @@ async def _replay_stream(
         await db.commit()
         session_id = session.id
 
-    token = set_replay_source(source.id)
+    replay_token = set_replay_source(source.id)
+    prompt_token = None
     try:
+        if body.prompt_mode == "original":
+            manifest = (source.usage or {}).get("prompts", {}).get("manifest", [])
+            if not manifest:
+                yield {
+                    "event": "error",
+                    "data": json.dumps(
+                        {"message": "The source run does not contain a prompt manifest"}
+                    ),
+                }
+                return
+            prompt_token = set_prompt_pins(manifest)
         original_intent = source.input_json.get("intent_override")
         intent = body.intent or original_intent
         force_web = (
@@ -299,7 +316,9 @@ async def _replay_stream(
         ):
             yield event
     finally:
-        reset_replay_source(token)
+        if prompt_token is not None:
+            reset_prompt_pins(prompt_token)
+        reset_replay_source(replay_token)
         async with AsyncSessionLocal() as db:
             temporary = await db.get(ChatSession, session_id)
             if temporary is not None:

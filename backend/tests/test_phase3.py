@@ -311,7 +311,8 @@ async def test_one_chat_query_runs_web_and_rag_agents(auth_client: AsyncClient, 
     answer_trace = next(item for item in answer["trace"] if item["stage"] == "answer_1")
     assert answer_trace["result"]["depends_on"] == ["web_1", "qa_1"]
     assert answer_trace["result"]["dag"]["nodes"][-1]["status"] == "completed"
-    assert answer["trace"][-1]["model"] == "gpt-5.6-terra"
+    assert answer_trace["model"] == "gpt-5.6-terra"
+    assert answer["trace"][-1]["stage"] == "resource_summary"
     assert answer_model.calls == 1
     assert "Poisson was a French mathematician" in answer_model.prompt
     assert "Poisson limit theorem" in answer_model.prompt

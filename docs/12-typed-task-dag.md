@@ -60,6 +60,22 @@ QA 与 Web 节点只收集原始证据。Answer 节点从 blackboard 读取全�
 按 DAG 声明顺序统一编号来源，再调用一次 Smart 档模型，避免多个 Agent 各自
 生成相互冲突的答案。
 
+## Durable execution
+
+每个复合 Chat 请求使用客户端稳定的 `request_id` 作为 execution key。Router 首次
+生成的完整 DAG 写入 `task_executions`，每个节点在 `task_node_checkpoints` 中独立保存：
+
+- 节点进入 provider I/O 前先持久化 `running + attempts`；
+- 成功结果 materialize 为 JSONB，重启后不会重复运行已完成节点；
+- 进程中断时 execution 标记为 `interrupted`，用户用同一 `request_id` 重试即可恢复；
+- 重试会读取原始 DAG，不重新调用 Router 生成可能不同的计划；
+- run-level lease 防止两个 worker 同时接管同一 execution，lease 丢失时 fail closed；
+- 已恢复节点在调用链显示 `checkpoint=true`、`execution_id` 和 `resumed=true`。
+
+这提供的是具备幂等结果复用的 at-least-once worker 语义。外部模型调用无法提供事务性
+exactly-once：如果进程恰好在 provider 已响应、checkpoint 尚未提交之间退出，该节点仍
+可能重发；有副作用的未来工具必须另外接受 execution/node idempotency key。
+
 ## 调用链、持久化与 Replay
 
 SSE 调用链现在包含：
@@ -80,10 +96,10 @@ SSE 调用链现在包含：
 | `TASK_DAG_MAX_NODES` | `8` | 单次 Router 计划允许的最大节点数 |
 | `TASK_DAG_NODE_TIMEOUT_SECONDS` | `90` | 每个节点每次尝试的超时 |
 | `TASK_DAG_MAX_ATTEMPTS` | `2` | 未单独指定时的最大尝试次数 |
+| `TASK_DAG_LEASE_SECONDS` | `120` | worker execution lease；过期后允许其他进程接管 |
 
 ## 当前边界与下一步
 
-当前 Typed DAG 已覆盖 Web + RAG + Answer 的主要复合知识链路，并为更多
-handler 留出了统一接口。下一阶段的 durable execution 会增加节点级幂等键、
-独立 checkpoint、进程重启恢复、可选依赖和降级策略；这些语义不会再由业务
-代码里的 `gather` 或数组下标隐式决定。
+当前 Typed DAG 已覆盖 Web + RAG + Answer 的节点级 checkpoint、租约和重启恢复。
+依赖仍全部是 required：任一 worker 最终失败时 synthesis 严格 blocked。可选依赖、
+部分结果降级和有副作用工具的 provider-side idempotency key 仍是后续工作。

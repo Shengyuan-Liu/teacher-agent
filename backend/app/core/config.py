@@ -140,6 +140,37 @@ class Settings(BaseSettings):
     task_dag_max_nodes: int = Field(default=8, ge=1, le=32)
     task_dag_node_timeout_seconds: float = Field(default=90, gt=0, le=600)
     task_dag_max_attempts: int = Field(default=2, ge=1, le=5)
+    task_dag_lease_seconds: int = Field(default=120, ge=10, le=3600)
+
+    # Workspace prompt overrides are cached briefly; activation clears the
+    # current process immediately and other workers converge within this TTL.
+    prompt_cache_ttl_seconds: float = Field(default=30, ge=0, le=300)
+
+    # Per-turn resource governance. Model calls reserve this estimate before
+    # I/O and reconcile it with provider usage afterwards, so concurrent DAG
+    # nodes cannot all observe the same unspent budget.
+    resource_budget_enabled: bool = True
+    turn_budget_max_model_calls: int = Field(default=12, ge=1, le=100)
+    turn_budget_max_tokens: int = Field(default=50_000, ge=1_000, le=2_000_000)
+    turn_budget_max_cost_usd: float = Field(default=1.0, gt=0, le=1000)
+    turn_budget_soft_ratio: float = Field(default=0.8, ge=0.1, lt=1.0)
+    turn_budget_estimated_input_tokens: int = Field(default=2_000, ge=1, le=1_000_000)
+    turn_budget_estimated_output_tokens: int = Field(default=1_000, ge=1, le=1_000_000)
+
+    # Reusable results live in Redis under hashed, workspace-scoped keys.
+    # Redis failures bypass the cache; they never fail the learner's request.
+    resource_cache_enabled: bool = True
+    router_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+    web_search_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+
+    # Shared dependency circuit breakers. A half-open state admits one probe
+    # across all workers before closing or reopening the circuit.
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_failure_threshold: int = Field(default=3, ge=1, le=100)
+    circuit_breaker_failure_window_seconds: int = Field(default=60, ge=1, le=3600)
+    circuit_breaker_recovery_seconds: int = Field(default=30, ge=1, le=3600)
+    circuit_breaker_half_open_timeout_seconds: int = Field(default=15, ge=1, le=300)
+    governance_redis_cooldown_seconds: int = Field(default=30, ge=1, le=300)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage
 from app.core.config import settings
 from app.services import usage
 from app.services.providers import IntelligenceTier, chat_model
+from app.services.resource_governance import circuit_breaker
 
 log = structlog.get_logger()
 
@@ -52,23 +53,38 @@ class NoopReranker:
         return [Reranked(index=i, score=1.0 / (i + 1)) for i in range(min(top_n, len(documents)))]
 
 
+async def _post_json(
+    dependency: str,
+    url: str,
+    *,
+    headers: dict,
+    payload: dict,
+) -> dict:
+    async def request() -> dict:
+        async with httpx.AsyncClient(timeout=settings.rerank_timeout) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    return await circuit_breaker.call(dependency, request)
+
+
 class JinaReranker:
     URL = "https://api.jina.ai/v1/rerank"
 
     async def rank(self, query: str, documents: list[str], top_n: int) -> list[Reranked]:
-        async with httpx.AsyncClient(timeout=settings.rerank_timeout) as client:
-            response = await client.post(
-                self.URL,
-                headers={"Authorization": f"Bearer {settings.jina_api_key}"},
-                json={
-                    "model": settings.jina_rerank_model,
-                    "query": query,
-                    "documents": documents,
-                    "top_n": top_n,
-                },
-            )
-            response.raise_for_status()
-            results = response.json()["results"]
+        data = await _post_json(
+            "reranker:jina",
+            self.URL,
+            headers={"Authorization": f"Bearer {settings.jina_api_key}"},
+            payload={
+                "model": settings.jina_rerank_model,
+                "query": query,
+                "documents": documents,
+                "top_n": top_n,
+            },
+        )
+        results = data["results"]
         usage.record_flat(
             "rerank", settings.jina_rerank_model, _flat_price(settings.jina_rerank_model)
         )
@@ -79,19 +95,18 @@ class CohereReranker:
     URL = "https://api.cohere.com/v2/rerank"
 
     async def rank(self, query: str, documents: list[str], top_n: int) -> list[Reranked]:
-        async with httpx.AsyncClient(timeout=settings.rerank_timeout) as client:
-            response = await client.post(
-                self.URL,
-                headers={"Authorization": f"Bearer {settings.cohere_api_key}"},
-                json={
-                    "model": settings.cohere_rerank_model,
-                    "query": query,
-                    "documents": documents,
-                    "top_n": top_n,
-                },
-            )
-            response.raise_for_status()
-            results = response.json()["results"]
+        data = await _post_json(
+            "reranker:cohere",
+            self.URL,
+            headers={"Authorization": f"Bearer {settings.cohere_api_key}"},
+            payload={
+                "model": settings.cohere_rerank_model,
+                "query": query,
+                "documents": documents,
+                "top_n": top_n,
+            },
+        )
+        results = data["results"]
         usage.record_flat(
             "rerank", settings.cohere_rerank_model, _flat_price(settings.cohere_rerank_model)
         )
@@ -102,19 +117,18 @@ class VoyageReranker:
     URL = "https://api.voyageai.com/v1/rerank"
 
     async def rank(self, query: str, documents: list[str], top_n: int) -> list[Reranked]:
-        async with httpx.AsyncClient(timeout=settings.rerank_timeout) as client:
-            response = await client.post(
-                self.URL,
-                headers={"Authorization": f"Bearer {settings.voyage_api_key}"},
-                json={
-                    "model": settings.voyage_rerank_model,
-                    "query": query,
-                    "documents": documents,
-                    "top_k": top_n,
-                },
-            )
-            response.raise_for_status()
-            results = response.json()["data"]
+        data = await _post_json(
+            "reranker:voyage",
+            self.URL,
+            headers={"Authorization": f"Bearer {settings.voyage_api_key}"},
+            payload={
+                "model": settings.voyage_rerank_model,
+                "query": query,
+                "documents": documents,
+                "top_k": top_n,
+            },
+        )
+        results = data["data"]
         usage.record_flat(
             "rerank", settings.voyage_rerank_model, _flat_price(settings.voyage_rerank_model)
         )

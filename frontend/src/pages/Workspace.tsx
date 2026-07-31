@@ -5,6 +5,7 @@ import LecturePanel from '@/components/LecturePanel'
 import EvaluationPanel from '@/components/EvaluationPanel'
 import ObservabilityPanel from '@/components/ObservabilityPanel'
 import PlanPanel from '@/components/PlanPanel'
+import PromptRegistryPanel from '@/components/PromptRegistryPanel'
 import SourcePanel from '@/components/SourcePanel'
 import { api } from '@/lib/api'
 
@@ -50,7 +51,7 @@ function SessionList({ workspaceId }: { workspaceId: string }) {
 export default function Workspace() {
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useState<
-    'chats' | 'lectures' | 'plan' | 'sources' | 'evals' | 'observability'
+    'chats' | 'lectures' | 'plan' | 'sources' | 'prompts' | 'evals' | 'observability'
   >('chats')
   const [question, setQuestion] = useState('')
   const navigate = useNavigate()
@@ -86,6 +87,7 @@ export default function Workspace() {
             ['lectures', 'Lectures'],
             ['plan', 'Plan'],
             ['sources', 'Sources'],
+            ['prompts', 'Prompts'],
             ['evals', 'Evaluations'],
             ['observability', 'Observability'],
           ] as const
@@ -106,6 +108,7 @@ export default function Workspace() {
         {tab === 'lectures' && <LecturePanel workspaceId={id} />}
         {tab === 'plan' && <PlanPanel workspaceId={id} />}
         {tab === 'sources' && <SourcePanel workspaceId={id} />}
+        {tab === 'prompts' && <PromptRegistryPanel workspaceId={id} />}
         {tab === 'evals' && <EvaluationPanel workspaceId={id} />}
         {tab === 'observability' && <ObservabilityPanel workspaceId={id} />}
       </div>

@@ -19,8 +19,9 @@ from app.agents.vision import image_blocks
 from app.core.config import settings
 from app.rag.crawl import fetch_page
 from app.rag.retriever import RetrievalConfig, RetrievedChunk, retrieve
-from app.rag.search import get_search_provider
+from app.rag.search import cached_search, get_search_provider
 from app.services import usage
+from app.services.agent_security import inspect_agent_output, sanitize_untrusted_content
 from app.services.providers import IntelligenceTier, chat_model
 
 TOP_K = 6
@@ -114,7 +115,8 @@ def _format_excerpts(context: list[RetrievedChunk]) -> str:
     blocks = []
     for i, c in enumerate(context, 1):
         where = f"{c.source_title} — {c.heading}" if c.heading else c.source_title
-        blocks.append(f"[{i}] ({where})\n{c.content}")
+        safe = sanitize_untrusted_content(c.content)
+        blocks.append(f"[{i}] ({where})\n{safe.safe_text}")
     return "\n\n".join(blocks)
 
 
@@ -160,7 +162,8 @@ async def generate(state: QAState) -> dict:
         final = chunk if final is None else final + chunk
     if final is not None:
         usage.record_message("generate", final)
-    return {"answer": "".join(parts)}
+    guarded = inspect_agent_output("".join(parts))
+    return {"answer": guarded.safe_text or "", "security": guarded.as_payload()}
 
 
 async def decline(state: QAState) -> dict:
@@ -179,7 +182,8 @@ async def decline(state: QAState) -> dict:
         final = chunk if final is None else final + chunk
     if final is not None:
         usage.record_message("decline", final)
-    return {"answer": "".join(parts)}
+    guarded = inspect_agent_output("".join(parts))
+    return {"answer": guarded.safe_text or "", "security": guarded.as_payload()}
 
 
 async def _build_web_query(state: QAState) -> str:
@@ -195,7 +199,12 @@ async def web_search(state: QAState) -> dict:
     """Only reached when the user opted into web search for this turn."""
     provider = get_search_provider()
     query = await _build_web_query(state)
-    results = await provider.search(query, settings.web_search_top_k)
+    results = await cached_search(
+        provider,
+        workspace_id=uuid.UUID(state["workspace_id"]),
+        query=query,
+        top_k=settings.web_search_top_k,
+    )
 
     pages: list[dict[str, Any]] = []
     web_citations: list[dict[str, Any]] = []
@@ -227,7 +236,9 @@ async def web_generate(state: QAState) -> dict:
             "so I can't answer it from a source."
         }
     blocks = [
-        f"[{p['n']}] ({p['url']})\n{p['markdown'][:WEB_PAGE_CHARS]}" for p in state["web_results"]
+        f"[{p['n']}] ({p['url']})\n"
+        f"{sanitize_untrusted_content(p['markdown'][:WEB_PAGE_CHARS]).safe_text}"
+        for p in state["web_results"]
     ]
     results = "\n\n".join(blocks)
     messages: list = [
@@ -246,7 +257,8 @@ async def web_generate(state: QAState) -> dict:
         final = chunk if final is None else final + chunk
     if final is not None:
         usage.record_message("web_generate", final)
-    return {"answer": "".join(parts)}
+    guarded = inspect_agent_output("".join(parts))
+    return {"answer": guarded.safe_text or "", "security": guarded.as_payload()}
 
 
 def _route_intent(state: QAState) -> str:

@@ -34,6 +34,11 @@ Observability 或 Replay 的实质改动，都必须在同一个 change 中追�
 | AE-014 | OpenTelemetry 与 Replay | run/span、waterfall、隔离重跑 |
 | AE-015 | Typed Task DAG | 显式依赖、blackboard、重试与失败传播 |
 | AE-016 | Multi-Agent Benchmark | 策略矩阵与消融实验 |
+| AE-017 | Prompt Registry | 不可变版本、hash、Eval/Replay 快照 |
+| AE-018 | Agent 安全与红队 | 四层 trust boundary、持续安全 gate |
+| AE-019 | 成本预算、缓存与熔断 | reservation、tenant cache、分布式 breaker |
+| AE-020 | Durable Typed DAG | 节点 checkpoint、execution lease、原图恢复 |
+| AE-021 | 实验与韧性证据 | semantic Judge、置信区间、load/fault/SLO 报告 |
 
 ---
 
@@ -360,3 +365,205 @@ failure propagation，以及真实 Chat fan-out/fan-in。
 
 **剩余边界**：确定性 benchmark 验证实验管线与相对机制，不替代真实模型结论；live
 matrix 应在固定模型版本、温度、预算和至少 30 次重复下报告置信区间。
+
+## AE-017 — Prompt Registry 与不可变版本
+
+**问题**：关键 Agent prompt 分散在代码中，运行记录只知道模型而不知道提示词版本；
+直接编辑字符串后，线上 failure、Eval baseline 和 Replay 都无法确认行为变化来自模型、
+数据还是 prompt，也缺少安全回滚路径。
+
+**根因**：prompt 没有稳定标识、变量契约、内容 hash、生命周期或与 usage/trace 的关联；
+Replay 默认使用当前代码，不能选择原运行版本。
+
+**方案**：
+
+- 建立 code-owned builtin + workspace override 的 Prompt Registry，版本状态为
+  `draft/active/archived`，数据库约束每个 key 只能有一个 active；
+- 版本不可变，保存严格变量集合、SHA-256、变更说明与创建者；激活和回滚清除缓存；
+- 首批迁移 Router、Answer synthesis、Planner、Lecture 和 live Benchmark 共 10 个
+  高影响 prompt，保留 builtin fallback；
+- prompt `key/version/hash/source` 进入 Chat stage、usage call、AgentRun/AgentSpan、
+  EvalRun 快照和逐 case 结果；
+- Replay 支持 `current` 做回归、`original` 按 version + hash fail-closed 锁定复现；
+- Workspace Prompt Dashboard 支持创建 draft、激活历史版本和 reset 到 builtin。
+
+**遇到的实现问题与解决**：
+
+- JSON 示例中的单花括号被模板解析器误认成变量：builtin 模板统一使用转义花括号，
+  创建版本时验证变量集合必须与稳定 key 契约完全一致；
+- Lecture 测试和扩展会 monkeypatch 旧函数签名：调用端检测可选 `workspace_id` 参数，
+  在不破坏旧实现的前提下启用 workspace override；
+- 多 worker 进程缓存无法被本地事件同时清除：当前进程立即 invalidation，其他进程用
+  短 TTL 收敛，并允许把 TTL 设为 0。
+
+**验证**：单元测试覆盖模板解析、缺失/额外变量、builtin trace；API 测试覆盖
+ownership、创建、重复内容冲突、激活、归档回滚、reset；Replay pin 测试确认 active
+升级后仍能解析旧 archived version + hash。完整后端、前端和 fast eval gate 同步运行。
+
+**取舍与剩余边界**：builtin 是可靠 fallback，但修改其内容时仍需人工递增代码版本；
+当前只迁移最影响行为的 10 个 prompt，QA/Quiz/Search/repair prompts 需继续纳入；
+跨进程即时 invalidation 后续可用 Redis pub/sub，生产 prompt 发布还应增加审批和
+Eval gate 自动关联。
+
+## AE-018 — Agent 安全策略与红队发布门禁
+
+**问题**：系统 prompt 虽然提示模型不要服从网页指令，Web 也有 consent 和 SSRF
+保护，但安全行为分散且主要依赖模型自觉；没有统一方法验证直接/间接 prompt
+injection、secret leakage、improper output 和 excessive agency 是否回归。
+
+**根因**：输入、外部 context、输出和 tool authorization 四个 trust boundary 没有共享
+policy contract；Evaluation Platform 也缺少 attack 与 benign false-positive 对照集。
+
+**方案**：
+
+- 新增 deterministic `agent_security` policy，返回统一
+  `action/findings/policy_version/safe_text`，finding 只存 detector ID 与 evidence hash；
+- Chat 在 Router 前执行 input preflight，阻止系统 prompt、`.env` 和凭据提取；
+- RAG、Web、Lecture、Quiz、Explanation、Outline 与 multi-source context 按句扫描，
+  可疑片段替换为 quarantine marker，保留相邻事实与 citation；
+- 流式 QA 保留短输出窗口，credential marker 完整前不发送；credential 做 redact，
+  明确 system-prompt dump 做 block；
+- Web authorization 收敛到 deployment enabled + explicit user consent 的代码级 policy；
+- 安全 input/context/output stages 进入调用链、Message trace 和 AgentRun/AgentSpan；
+- 新增 14-case model-free red-team suite 与 Dashboard starter，`security_accuracy=1.0`
+  进入 CI。
+
+**遇到的实现问题与解决**：
+
+- 直接阻止包含 “ignore previous instructions” 的文本会误伤安全课程：检测讨论性表达，
+  并用 benign paired cases 锁住 false-positive；
+- 丢弃整个恶意 chunk 会损失同一来源里的正常事实：按句/行 quarantine，只在模型看到的
+  context 中移除攻击段；
+- 模型 token 一旦发到浏览器再检查已经太迟：保留最后 128 字符，在 credential pattern
+  完整后先脱敏再继续流式发送；
+- 把 attack 原文写入审计会二次复制 secret：trace 只保留分类、detector ID 和 SHA-256。
+
+**验证**：14/14 red-team cases 覆盖中英文 extraction、间接注入、active HTML、
+credential/prompt leakage、工具 consent 和 benign preservation；Chat 集成测试确认安全
+拒绝不调用 Router/LLM，并把 policy 结果持久化。`make eval-fast` 总计 30/30。
+
+**取舍与剩余边界**：确定性策略可解释且低延迟，但不是完整 DLP/WAF；编码混淆、跨 chunk
+拼接、多模态隐写和 adaptive multi-turn attack 仍需 nightly live red team。输出短缓冲会
+略微增加首段可见延迟；未来增加有副作用工具时还需 per-tool 最小权限、参数验证和确认级别。
+
+## AE-019 — 请求级成本预算、缓存与依赖熔断
+
+**问题**：一次复合 query 会并发运行 Router、Web/RAG worker、reranker 和 Answer。
+原系统只在 provider 返回后统计用量，因此多个 DAG 节点可能同时看到“尚未花费”的预算；
+相同 Router/Search 请求会重复付费；provider 故障期间每个请求都会等待同一超时。
+
+**根因**：Usage 是事后 accounting，不是执行前 admission control；已有 prompt/sparse
+cache 是模块内进程字典，没有统一 tenant key、跨 worker 命中或审计；重试只在 DAG
+节点层，没有按 provider/model 聚合的故障状态。
+
+**方案**：
+
+- 每个 turn 创建共享 `ResourceLedger`，模型 I/O 前按估计 token/cost reservation，
+  返回后用 provider usage reconciliation；并发协程共享 outstanding reservations；
+- 预计达到 soft ratio 时 Smart→Fast，超过 call/token/已知 cost 任一 hard limit 时
+  在 provider I/O 前 fail-closed；未知价格仍执行 call/token 限制并显式标记成本未完整执行；
+- Router cache key 纳入 history/question、prompt version/hash、model trace；Web cache
+  纳入 provider/query/top-k/filter；两者使用 workspace hash + payload hash，不存原文 key；
+- Redis cache miss 使用进程内 keyed lock single-flight；Redis 故障 fail-open 并进入
+  cooldown，避免每次调用重复等待连接超时；
+- LLM、Tavily、Jina/Cohere/Voyage reranker 共用 breaker；Redis Lua 原子执行
+  closed/open/half-open，half-open 跨 worker 只允许一个 probe；Redis outage 使用本地状态机；
+- policy 与最终 summary 进入 Chat 调用链；完整治理 payload 进入 Usage、Message、
+  AgentRun/Span 与 OTel root attributes；前端 Usage 展示预算、cache、breaker 和降级次数；
+- 新增 `resource_governance` suite，作为 Dashboard starter 和 `make eval-fast` CI gate。
+
+**遇到的实现问题与解决**：
+
+- 只比较已返回 token 会在 fan-out 时 oversubscribe：reservation 在 await 前同步写入共享
+  ledger，第二个同层协程立即看到第一个 outstanding call；
+- 若把治理放在带 `lru_cache` 的 model factory 内，只会检查模型首次创建：改为透明
+  ChatModel proxy，在每次 `ainvoke/astream` 的真实 I/O 边界执行预算和 breaker；
+- cache key 若直接拼 query 会在 Redis 运维面泄露内容：canonical JSON 只用于本地
+  SHA-256，Redis 与 trace 仅保留 payload hash 前缀；
+- Redis 自身故障不能让保护层拖慢所有请求：cache bypass，breaker 降为进程内状态，
+  并设置 Redis 重试 cooldown。
+
+**验证**：新增 7 个治理单元测试，覆盖 soft downgrade、并发 hard stop、实际 usage
+核算、未知价格、tenant key、single-flight 和完整 circuit recovery；5 个 model-free
+fault-injection cases 全通过，`make eval-fast` 从 30 扩展为 35 cases。完整设计和配置见
+`docs/17-resource-governance.md`。
+
+**取舍与剩余边界**：单个 response 超过 reservation 后无法追回已发生的费用，只能停止
+后续调用；streaming 尚未按 output token 中途取消；预算是单 turn 部署配置，不是持久化
+用户套餐；Redis outage 时 breaker 跨 worker 暂时不一致；Embedding 计量已纳入预算，
+但还没有独立 circuit proxy。
+
+## AE-020 — Durable Typed Task DAG 与进程恢复
+
+**问题**：Typed DAG 虽然在最终 AgentRun 保存快照，但 Web/RAG worker 已完成后若 API
+进程退出，用户重试会重新 Router、重新检索并再次付费；两个相同 request 重试也可能并发
+执行同一节点。
+
+**根因**：blackboard 只存在于进程内，`Message.client_request_id` 只能识别重复请求，
+不能区分“已完成”与“中断待恢复”；执行器也没有 persistence/lease boundary。
+
+**方案**：
+
+- 新增 `task_executions` 和 `task_node_checkpoints`，分别保存原始 DAG、execution 状态、
+  worker lease 与节点 status/attempt/result/error；
+- 稳定的客户端 `request_id` 作为 execution key；未提供时使用已持久化 user message ID；
+- provider I/O 前保存 running/attempt，成功后 materialize JSONB result；
+- 同一 request 重试先读取原始 DAG，避免 Router 漂移；已完成节点发出 `restored` event，
+  未完成节点继续运行；
+- execution lease 用数据库行锁取得和续期，活跃 owner 存在时第二个 worker 返回
+  `duplicate/in_progress`，中断或 lease 过期后允许接管；
+- 调用链与 done payload 增加 `checkpoint/execution_id/resumed`。
+
+**遇到的实现问题与解决**：
+
+- 只恢复结果、不恢复原图会让 nondeterministic Router 产生 hash mismatch：重试在 Router
+  前加载数据库中的 DAG definition；
+- async generator 被客户端断开时普通 return 不会执行收尾：executor 用 `finally`
+  将 execution 标记为 interrupted 并释放 lease；
+- 已完成 synthesis 恰好在 assistant message 提交前中断：恢复流把 Answer checkpoint
+  当作完成事件重新持久化 Message，不再次调用模型。
+
+**验证**：单元测试模拟首层 worker 完成后关闭 generator，新 executor 只执行 Answer；
+PostgreSQL 集成测试验证 materialized result、竞争 lease 拒绝和 interrupted takeover；
+迁移已在本地 PostgreSQL 从 `a91d5e7c42bf` 升到 `b72f6e2c9d10`。
+
+**取舍与剩余边界**：这是结果幂等、at-least-once 语义，不宣称 provider I/O exactly-once；
+进程若在 provider 返回和 checkpoint commit 之间退出仍可能重发。有副作用工具必须把
+execution/node key 传给下游。当前依赖全是 required，可选依赖和部分结果降级尚未实现。
+
+## AE-021 — 可复现 Benchmark、语义 Judge 与韧性证据
+
+**问题**：系统已有 deterministic 消融和治理单测，但求职展示缺少可复查的分布报告、
+真实模型结果、并发压力和故障恢复证据。首轮 live benchmark 还把模型同义改写错误判为
+claim 缺失，使 Typed DAG 得到不可信的 0% pass rate。
+
+**根因**：原报告只在 Dashboard 临时展示均值，没有固定 Git/model/prompt/seed 和
+case-level artifact；live 与 deterministic 共用完整句子 substring matcher；测试没有
+P50/P95、bootstrap CI 或并发 fault profile。
+
+**方案**：
+
+- 新增 benchmark CLI，固定四策略、4-case dataset、Git SHA、Fast/Smart/Judge 模型，
+  保存每个 answer、token、成本、关键路径和 2,000-sample bootstrap 95% CI；
+- deterministic 保留严格 contract matcher；live 使用版本化 `benchmark.judge`
+  按 semantic entailment、引用、顺序和连贯性评分，结构化结果经过 bounded recovery；
+- 发布 480-sample deterministic report 和 48-sample live pilot，不删除不利结果；
+- 新增 200-turn、50-concurrency resilience profile，直接压实际 DAG/retry、预算
+  reservation、cache single-flight 和 circuit half-open 状态机；
+- 新增通用 HTTP load probe；本地 readiness 500/500 成功，availability 100%，
+  P95 236.675ms，满足预设 99% / 500ms SLO；
+- CI 增加 3-repeat deterministic report 和 40-turn/20-concurrency resilience smoke。
+
+**验证**：
+
+- live pilot 48 个策略样本与 48 个 Judge，无 JSON repair；结果显示 single-agent 质量
+  最高，Typed DAG 只在相对 sequential/no-synthesis 的特定 trade-off 上获益；
+- resilience 600 个 DAG turns 覆盖 healthy、transient timeout 和 permanent timeout；
+  预算 12/50 admission、50-request cache stampede 单次计算、50 次 open-circuit block
+  和唯一 half-open probe 全部通过；
+- 报告及 case-level JSON 位于 `docs/reports/`，生成器、统计函数与故障 gate 有自动化测试。
+
+**取舍与剩余边界**：3-repeat live 是 pilot，不能宣称稳定百分比收益；Judge 与 Answer
+都使用 Terra，仍有 self-preference 风险，正式实验应换独立模型并扩展到 30+ repeats。
+HTTP readiness 不代表付费 Chat 端到端 SLO；部署后还需要 authenticated canary、soak
+test 和外部区域负载。

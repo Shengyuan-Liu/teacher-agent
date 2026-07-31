@@ -117,6 +117,7 @@ async def test_agent_trace_summary_and_isolated_replay(auth_client: AsyncClient,
         {"role": "assistant", "content": "Earlier answer"},
     ]
     assert source["model_config"]["fast"]["model"]
+    assert source["model_config"]["security_policy_version"] == "1.0.0"
 
     detail = (
         await auth_client.get(f"/workspaces/{workspace_id}/observability/runs/{source['id']}")
