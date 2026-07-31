@@ -12,12 +12,11 @@ from typing import Literal, cast
 
 from langchain_core.messages import HumanMessage
 
+from app.agents.task_dag import AgentTask, TaskAgent
 from app.services import usage
 from app.services.providers import IntelligenceTier, chat_model
 
-Intent = Literal[
-    "qa", "web", "quiz", "test", "review", "progress", "plan", "explain", "lecture"
-]
+Intent = Literal["qa", "web", "quiz", "test", "review", "progress", "plan", "explain", "lecture"]
 INTENTS: tuple[Intent, ...] = (
     "qa",
     "web",
@@ -53,17 +52,23 @@ def filter_authorized_tasks(
 ) -> tuple["AgentTask", ...]:
     """Remove Web tasks unless configuration and user consent both allow I/O."""
     web_authorized = explicit_web_action or explicit_web_request(question)
+    retained = tuple(
+        task for task in tasks if task.agent != "web" or (web_search_enabled and web_authorized)
+    )
+    retained_ids = {task.id for task in retained if task.id}
+    knowledge_count = sum(task.agent in ("qa", "web") for task in retained)
     return tuple(
         task
-        for task in tasks
-        if task.agent != "web" or (web_search_enabled and web_authorized)
+        for task in retained
+        if task.agent != "answer"
+        or (
+            knowledge_count >= 2
+            and (
+                not task.depends_on
+                or all(dependency in retained_ids for dependency in task.depends_on)
+            )
+        )
     )
-
-
-@dataclass(frozen=True)
-class AgentTask:
-    agent: Intent
-    query: str
 
 
 @dataclass(frozen=True)
@@ -98,8 +103,10 @@ CLASSIFY_PROMPT = """{context}The user's latest message is:
 
 Build the smallest agent plan that fulfils what the learner wants NOW. Return JSON only:
 {{"intent":"primary intent","confidence":0.0,
-  "tasks":[{{"agent":"qa|web|quiz|test|review|progress|plan|explain|lecture",
-             "query":"standalone subtask for that agent"}}],
+  "tasks":[{{"id":"stable_snake_case_id",
+             "agent":"qa|web|quiz|test|review|progress|plan|explain|lecture|answer",
+             "query":"standalone subtask for that agent",
+             "depends_on":["upstream_task_id"]}}],
   "alternatives":["..."],"reason":"brief reason"}}
 
 - web: the latest message explicitly asks to go online/search the internet. Never infer web.
@@ -116,10 +123,13 @@ Build the smallest agent plan that fulfils what the learner wants NOW. Return JS
 Use one task for a simple request. Use multiple tasks when the request explicitly
 needs different sources or capabilities. In particular, split a request that asks
 to search the internet AND inspect the learner's material into a focused `web` task
-and a focused `qa` task. Rewrite every task query so it is independently meaningful
-and resolves pronouns from the original request. Do not collapse such a request into
-only `web` or only `qa`. Multi-task knowledge gathering currently supports `web` and
-`qa`; keep action intents such as quiz/test/plan as a single task.
+and a focused `qa` task, then add one `answer` synthesis task that depends on both.
+The `web` and `qa` tasks have no dependencies and may run in parallel. Rewrite every
+task query so it is independently meaningful and resolves pronouns from the original
+request. Do not collapse such a request into only `web` or only `qa`. Multi-task
+knowledge gathering currently supports `web` and `qa`; keep action intents such as
+quiz/test/plan as a single task with no dependencies. IDs must be unique and every
+dependency must reference an earlier task ID.
 
 Use recent conversation only to understand follow-ups. When multiple actions
 are alternative interpretations rather than requested subtasks, lower confidence
@@ -140,6 +150,13 @@ def _valid_intent(value: object) -> Intent | None:
     return cast(Intent, normalized) if normalized in INTENTS else None
 
 
+def _valid_task_agent(value: object) -> TaskAgent | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in (*INTENTS, "answer"):
+        return cast(TaskAgent, normalized)
+    return None
+
+
 def parse_decision(text: str) -> IntentDecision:
     """Parse structured output, retaining one-word compatibility for providers
     that ignore the JSON instruction and for deterministic test doubles."""
@@ -149,18 +166,30 @@ def parse_decision(text: str) -> IntentDecision:
             payload = json.loads(match.group(0))
             intent = _valid_intent(payload.get("intent"))
             tasks = tuple(
-                AgentTask(agent, query[:1000])
-                for item in payload.get("tasks", [])[:4]
+                AgentTask(
+                    agent=agent,
+                    query=query[:1000],
+                    id=str(item.get("id") or "").strip()[:80],
+                    depends_on=tuple(
+                        str(dependency).strip()[:80]
+                        for dependency in item.get("depends_on", [])[:8]
+                        if str(dependency).strip()
+                    )
+                    if isinstance(item.get("depends_on", []), list)
+                    else (),
+                )
+                for item in payload.get("tasks", [])[:8]
                 if isinstance(item, dict)
-                and (agent := _valid_intent(item.get("agent"))) is not None
+                and (agent := _valid_task_agent(item.get("agent"))) is not None
                 and (query := str(item.get("query") or "").strip())
             )
-            # Composite execution currently combines knowledge-gathering agents.
+            worker_tasks = tuple(task for task in tasks if task.agent != "answer")
             # Action agents retain their dedicated transactional flows.
-            if len(tasks) > 1 and any(task.agent not in ("qa", "web") for task in tasks):
+            if len(tasks) > 1 and any(task.agent not in ("qa", "web", "answer") for task in tasks):
                 tasks = ()
-            if intent is None and tasks:
-                intent = tasks[0].agent
+                worker_tasks = ()
+            if intent is None and worker_tasks:
+                intent = cast(Intent, worker_tasks[0].agent)
             confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.0))))
             alternatives = tuple(
                 alternative

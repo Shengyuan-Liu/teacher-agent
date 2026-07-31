@@ -1,4 +1,4 @@
-.PHONY: help setup up down stop logs backend worker frontend dev dev-bg test lint fmt migrate migration reset-db ps
+.PHONY: help setup up down stop logs backend worker frontend dev dev-bg observability-up observability-backend test eval-fast lint fmt migrate migration reset-db ps
 
 help:  ## List available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -41,9 +41,18 @@ dev:  ## Start everything (ARGS=--nohup to detach, logs in logs/run_logs/)
 dev-bg:  ## Start everything detached, logs in logs/run_logs/
 	@./scripts/dev.sh --nohup
 
+observability-up:  ## Start local Jaeger OTLP collector and UI (:16686)
+	docker compose --profile observability up -d jaeger
+
+observability-backend:  ## Run API with OTLP export to local Jaeger
+	cd backend && OTEL_TRACES_EXPORTER=otlp OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run uvicorn app.main:app --reload --port 8000
+
 test:  ## Run backend and frontend tests, requires running containers
-	cd backend && uv run pytest -v
+	cd backend && ENVIRONMENT=test DEBUG=false uv run pytest -v
 	cd frontend && pnpm test
+
+eval-fast:  ## Run model-free Router and structured-output regression gates
+	cd backend && ENVIRONMENT=test DEBUG=false uv run python -m app.evaluation.cli fast
 
 lint:  ## Check backend and frontend
 	cd backend && uv run ruff check app tests && uv run ruff format --check app tests

@@ -1,6 +1,6 @@
 # 项目文档索引
 
-本目录是「万物可学」学习助手 Agent 项目的需求与设计文档集合。Phase 1–3 主链路已实现，当前正在开发和验收 Chat-first Phase 4 Lecture 模式。
+本目录是「万物可学」学习助手 Agent 项目的需求与设计文档集合。Phase 1–4 主链路已实现，当前正在建设面向生产与 AI Engineer 工程能力展示的 Phase 5。
 
 工作代号：**TeacherAgent**（可后续改名）
 
@@ -18,6 +18,11 @@
 | [07-references.md](07-references.md) | 参考的开源项目调研与借鉴点 |
 | [08-roadmap.md](08-roadmap.md) | 分阶段路线图（MVP → V2 → V3） |
 | [09-rag.md](09-rag.md) | RAG 管线：混合检索、RRF、重排、评估方法与指标 |
+| [10-evaluation-platform.md](10-evaluation-platform.md) | 统一 AI Evaluation Platform：数据集、suite、运行、baseline、回归 gate 与 Dashboard |
+| [11-observability-replay.md](11-observability-replay.md) | OpenTelemetry Agent traces、模型/成本聚合、waterfall、隐私策略与隔离 Replay |
+| [12-typed-task-dag.md](12-typed-task-dag.md) | Typed Task DAG：显式依赖、拓扑并发、blackboard、超时/重试、失败传播与调用链 |
+| [13-agent-engineering-log.md](13-agent-engineering-log.md) | Agent 工程日志：历次优化、故障根因、解决方案、验证证据、取舍与遗留问题 |
+| [14-multi-agent-benchmark.md](14-multi-agent-benchmark.md) | Multi-Agent 策略矩阵、消融设计、指标、deterministic/live 运行与结论边界 |
 
 ## 阅读顺序建议
 

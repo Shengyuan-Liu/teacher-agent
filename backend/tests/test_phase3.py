@@ -3,11 +3,12 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.agents.explanation import build_knowledge_graph
 from app.agents.router import AgentTask, IntentDecision
 from app.core.database import AsyncSessionLocal
-from app.models import PlanStage, Question, StudyPlan, Workspace
+from app.models import AgentRun, PlanStage, Question, StudyPlan, Workspace
 from app.services.assessment import grade_objective, parse_short_grade
 from app.services.mastery import next_review_schedule
 
@@ -217,9 +218,7 @@ async def test_formal_test_updates_reviews_and_mastery(auth_client: AsyncClient)
 
 
 @pytest.mark.asyncio
-async def test_chat_router_asks_before_ambiguous_action(
-    auth_client: AsyncClient, monkeypatch
-):
+async def test_chat_router_asks_before_ambiguous_action(auth_client: AsyncClient, monkeypatch):
     from app.services import chat_stream
 
     async def ambiguous(*_args, **_kwargs):
@@ -227,9 +226,7 @@ async def test_chat_router_asks_before_ambiguous_action(
 
     monkeypatch.setattr(chat_stream, "route_intent", ambiguous)
     workspace = (await auth_client.post("/workspaces", json={"name": "Clarify"})).json()
-    session = (
-        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
-    ).json()
+    session = (await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")).json()
     response = await auth_client.post(
         f"/chat/sessions/{session['id']}/stream", json={"message": "考考我并详细讲讲"}
     )
@@ -255,9 +252,7 @@ async def test_chat_choice_bypasses_router_model(auth_client: AsyncClient, monke
 
     monkeypatch.setattr(chat_stream, "route_intent", must_not_route)
     workspace = (await auth_client.post("/workspaces", json={"name": "Choice"})).json()
-    session = (
-        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
-    ).json()
+    session = (await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")).json()
     response = await auth_client.post(
         f"/chat/sessions/{session['id']}/stream",
         json={"message": "查看我的学习进度", "intent": "progress"},
@@ -297,14 +292,10 @@ async def test_one_chat_query_runs_web_and_rag_agents(auth_client: AsyncClient, 
     monkeypatch.setattr(chat_stream.settings, "web_search_enabled", True)
 
     workspace = (await auth_client.post("/workspaces", json={"name": "Multi agent"})).json()
-    session = (
-        await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")
-    ).json()
+    session = (await auth_client.post(f"/workspaces/{workspace['id']}/chat/sessions")).json()
     response = await auth_client.post(
         f"/chat/sessions/{session['id']}/stream",
-        json={
-            "message": "上网搜一下 Poisson 是谁，然后看看他在这个教材里做出了哪些定理"
-        },
+        json={"message": "上网搜一下 Poisson 是谁，然后看看他在这个教材里做出了哪些定理"},
     )
 
     assert response.status_code == 200
@@ -315,8 +306,21 @@ async def test_one_chat_query_runs_web_and_rag_agents(auth_client: AsyncClient, 
     assert [item["n"] for item in answer["web_citations"]] == [1]
     assert [item["n"] for item in answer["citations"]] == [2]
     assert {item["agent"] for item in answer["trace"]} >= {"router", "web", "qa", "answer"}
+    dag_trace = next(item for item in answer["trace"] if item["stage"] == "task_dag")
+    assert dag_trace["result"]["layers"] == [["web_1", "qa_1"], ["answer_1"]]
+    answer_trace = next(item for item in answer["trace"] if item["stage"] == "answer_1")
+    assert answer_trace["result"]["depends_on"] == ["web_1", "qa_1"]
+    assert answer_trace["result"]["dag"]["nodes"][-1]["status"] == "completed"
     assert answer["trace"][-1]["model"] == "gpt-5.6-terra"
     assert answer_model.calls == 1
     assert "Poisson was a French mathematician" in answer_model.prompt
     assert "Poisson limit theorem" in answer_model.prompt
+    async with AsyncSessionLocal() as db:
+        run = await db.scalar(
+            select(AgentRun)
+            .where(AgentRun.session_id == uuid.UUID(session["id"]))
+            .order_by(AgentRun.created_at.desc())
+        )
+        assert run is not None
+        assert run.output_json["task_dag"]["nodes"][-1]["status"] == "completed"
     await auth_client.delete(f"/workspaces/{workspace['id']}")

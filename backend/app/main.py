@@ -8,9 +8,11 @@ from app.api.v1 import (
     assessments,
     auth,
     chat,
+    evaluations,
     health,
     images,
     lectures,
+    observability,
     plans,
     sources,
     web_search,
@@ -20,6 +22,7 @@ from app.core.config import settings
 from app.core.database import engine
 from app.core.redis_client import close_redis
 from app.services.queue import close_queue
+from app.services.telemetry import setup_telemetry, shutdown_telemetry
 
 log = structlog.get_logger()
 
@@ -31,6 +34,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
     await close_redis()
     await close_queue()
+    shutdown_telemetry()
 
 
 app = FastAPI(
@@ -57,12 +61,16 @@ for router in (
     sources.router,
     images.router,
     chat.router,
+    evaluations.router,
     plans.router,
     lectures.router,
+    observability.router,
     assessments.router,
     web_search.router,
 ):
     app.include_router(router, prefix=settings.api_v1_prefix)
+
+setup_telemetry(app)
 
 
 @app.get("/")

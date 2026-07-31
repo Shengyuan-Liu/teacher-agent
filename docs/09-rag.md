@@ -60,6 +60,9 @@ OCR 返回的插图会存到 `storage/<workspace>/images/<source>/`，父块的 
 
 ## 评估
 
+以下命令是保留的 RAG 专项实验入口；日常产品评测统一由
+[AI Evaluation Platform](10-evaluation-platform.md) 的 `rag_retrieval` suite 持久化并与 baseline 比较。
+
 ```bash
 # 从语料生成评估集（问题由 LLM 从父块生成，该父块即 ground truth）
 uv run python -m app.rag.evaluation.runner build --workspace Optimisation --size 30
