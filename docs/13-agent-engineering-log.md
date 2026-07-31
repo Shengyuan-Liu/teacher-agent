@@ -395,6 +395,9 @@ Replay 默认使用当前代码，不能选择原运行版本。
   在不破坏旧实现的前提下启用 workspace override；
 - 多 worker 进程缓存无法被本地事件同时清除：当前进程立即 invalidation，其他进程用
   短 TTL 收敛，并允许把 TTL 设为 0。
+- 首次在 CI 空数据库重放迁移时，暴露出 `version/status` 约束误建在 definition 表：
+  将约束移动到实际持有字段的 version 表，并把空库 `upgrade head + alembic check`
+  纳入发布验证，避免已有本地数据库掩盖历史迁移错误。
 
 **验证**：单元测试覆盖模板解析、缺失/额外变量、builtin trace；API 测试覆盖
 ownership、创建、重复内容冲突、激活、归档回滚、reset；Replay pin 测试确认 active

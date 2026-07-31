@@ -41,18 +41,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.CheckConstraint("version > 0", name="ck_prompt_version_positive"),
-        sa.CheckConstraint(
-            "status IN ('draft', 'active', 'archived')",
-            name="ck_prompt_version_status",
-        ),
-        sa.UniqueConstraint(
-            "workspace_id", "key", name="uq_prompt_definition_workspace_key"
-        ),
+        sa.UniqueConstraint("workspace_id", "key", name="uq_prompt_definition_workspace_key"),
     )
-    op.create_index(
-        "ix_prompt_definitions_key", "prompt_definitions", ["key"]
-    )
+    op.create_index("ix_prompt_definitions_key", "prompt_definitions", ["key"])
     op.create_index(
         "ix_prompt_definitions_workspace_id",
         "prompt_definitions",
@@ -92,19 +83,16 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(
-            ["created_by_id"], ["users.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["definition_id"], ["prompt_definitions.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["created_by_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["definition_id"], ["prompt_definitions.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "definition_id", "content_hash", name="uq_prompt_version_content"
+        sa.CheckConstraint("version > 0", name="ck_prompt_version_positive"),
+        sa.CheckConstraint(
+            "status IN ('draft', 'active', 'archived')",
+            name="ck_prompt_version_status",
         ),
-        sa.UniqueConstraint(
-            "definition_id", "version", name="uq_prompt_version_number"
-        ),
+        sa.UniqueConstraint("definition_id", "content_hash", name="uq_prompt_version_content"),
+        sa.UniqueConstraint("definition_id", "version", name="uq_prompt_version_number"),
     )
     op.create_index(
         "ix_prompt_versions_content_hash",
@@ -116,9 +104,7 @@ def upgrade() -> None:
         "prompt_versions",
         ["definition_id"],
     )
-    op.create_index(
-        "ix_prompt_versions_status", "prompt_versions", ["status"]
-    )
+    op.create_index("ix_prompt_versions_status", "prompt_versions", ["status"])
     op.create_index(
         "uq_prompt_active_per_definition",
         "prompt_versions",
@@ -129,23 +115,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "uq_prompt_active_per_definition", table_name="prompt_versions"
-    )
-    op.drop_index(
-        "ix_prompt_versions_status", table_name="prompt_versions"
-    )
-    op.drop_index(
-        "ix_prompt_versions_definition_id", table_name="prompt_versions"
-    )
-    op.drop_index(
-        "ix_prompt_versions_content_hash", table_name="prompt_versions"
-    )
+    op.drop_index("uq_prompt_active_per_definition", table_name="prompt_versions")
+    op.drop_index("ix_prompt_versions_status", table_name="prompt_versions")
+    op.drop_index("ix_prompt_versions_definition_id", table_name="prompt_versions")
+    op.drop_index("ix_prompt_versions_content_hash", table_name="prompt_versions")
     op.drop_table("prompt_versions")
-    op.drop_index(
-        "ix_prompt_definitions_workspace_id", table_name="prompt_definitions"
-    )
-    op.drop_index(
-        "ix_prompt_definitions_key", table_name="prompt_definitions"
-    )
+    op.drop_index("ix_prompt_definitions_workspace_id", table_name="prompt_definitions")
+    op.drop_index("ix_prompt_definitions_key", table_name="prompt_definitions")
     op.drop_table("prompt_definitions")
