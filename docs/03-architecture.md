@@ -87,7 +87,7 @@ flowchart TB
 
 ### 2.2 后端 API（FastAPI）
 
-- 分层：`api/`（路由） → `services/`（业务逻辑） → `agents/`（LangGraph 编排） → `repositories/`（数据访问）。
+- 分层：`api/`（路由）调用 `services/`（业务逻辑）和 `agents/`（LangGraph 编排）；数据访问通过 SQLAlchemy session 与 `models/` 完成。
 - 鉴权：JWT（access + refresh token），中间件校验，资源级别按 `user_id` 过滤。
 - 流式响应：FastAPI 的 `StreamingResponse`（SSE）或原生 WebSocket，与 LangGraph 的流式事件（`astream_events`）对接。
 - 异步任务：摄取等耗时操作不占用请求线程，提交到任务队列，接口立即返回任务 ID。

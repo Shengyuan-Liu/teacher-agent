@@ -27,6 +27,8 @@
 | [16-agent-security-red-team.md](16-agent-security-red-team.md) | Agent 安全：威胁模型、输入/上下文/输出策略、工具 consent、审计调用链与红队 CI suite |
 | [17-resource-governance.md](17-resource-governance.md) | 请求级资源治理：预算 reservation、workspace Redis cache、single-flight、分布式熔断与故障注入 Eval |
 | [18-resilience-load-testing.md](18-resilience-load-testing.md) | 50 并发 DAG load、timeout/retry、预算/缓存/熔断故障注入与 HTTP readiness SLO |
+| [19-long-term-memory.md](19-long-term-memory.md) | 用户长期记忆：LangMem 提取合并、pgvector 跨会话召回、衰减/过期与用户治理 |
+| [eval.md](eval.md) | 浏览器手工验收：完整操作路径、可复制提示词、调用链与通过/失败标准 |
 
 ## 阅读顺序建议
 

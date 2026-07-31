@@ -101,6 +101,25 @@ export interface Workspace {
   created_at: string
 }
 
+export type MemoryKind = 'preference' | 'background' | 'goal'
+
+export interface UserMemory {
+  id: string
+  kind: MemoryKind
+  memory_key: string
+  content: string
+  confidence: number
+  effective_confidence: number
+  importance: number
+  user_confirmed: boolean
+  expires_at: string | null
+  last_accessed_at: string | null
+  access_count: number
+  source_workspace_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 type Provenance = 'user_upload' | 'user_url' | 'user_github' | 'web_search'
 
 export interface Source {
@@ -688,6 +707,19 @@ export const api = {
     request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`),
   listLectures: (workspaceId: string) =>
     request<LectureSummary[]>(`/workspaces/${workspaceId}/lectures`),
+
+  listMemories: (workspaceId: string) =>
+    request<UserMemory[]>(`/workspaces/${workspaceId}/memories`),
+  createMemory: (
+    workspaceId: string,
+    body: { kind: MemoryKind; content: string; expires_at?: string | null },
+  ) => json<UserMemory>(`/workspaces/${workspaceId}/memories`, 'POST', body),
+  updateMemory: (
+    memoryId: string,
+    body: { kind?: MemoryKind; content?: string; expires_at?: string | null },
+  ) => json<UserMemory>(`/memories/${memoryId}`, 'PATCH', body),
+  deleteMemory: (memoryId: string) =>
+    request<void>(`/memories/${memoryId}`, { method: 'DELETE' }),
 
   listEvalSuites: (workspaceId: string) =>
     request<EvalSuite[]>(`/workspaces/${workspaceId}/evals/suites`),

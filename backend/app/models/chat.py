@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,5 +64,8 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     artifacts: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
     )
+    # The assistant row is the idempotency marker for one background memory job.
+    memory_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    memory_processing_error: Mapped[str | None] = mapped_column(Text)
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")

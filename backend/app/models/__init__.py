@@ -11,6 +11,7 @@ from app.models.chat import ChatSession, Message
 from app.models.chunk import Chunk, ChunkParent
 from app.models.evaluation import EvalCase, EvalDataset, EvalResult, EvalRun
 from app.models.lecture import LectureSession
+from app.models.memory import UserMemory
 from app.models.observability import AgentRun, AgentSpan
 from app.models.prompt import PromptDefinition, PromptVersion
 from app.models.source import Source, SourceProvenance, SourceStatus, SourceType
@@ -33,6 +34,7 @@ __all__ = [
     "EvalResult",
     "EvalRun",
     "Message",
+    "UserMemory",
     "LectureSession",
     "PlanStage",
     "PromptDefinition",

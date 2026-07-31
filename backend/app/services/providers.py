@@ -179,6 +179,17 @@ def chat_model(tier: IntelligenceTier = IntelligenceTier.SMART) -> BaseChatModel
 
 
 @lru_cache
+def tool_calling_model(tier: IntelligenceTier = IntelligenceTier.FAST) -> BaseChatModel:
+    """Return a real LangChain model for libraries that inspect its concrete type.
+
+    LangMem binds extraction tools to the model and therefore cannot use the
+    transparent runtime-governance proxy. This entry point is reserved for
+    bounded background jobs, which have their own queue timeout and retries.
+    """
+    return _build_chat_model(tier)
+
+
+@lru_cache
 def embeddings() -> Embeddings:
     match settings.embedding_provider:
         case "openai":

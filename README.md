@@ -35,6 +35,9 @@ observability, replay, safety, cost control, and reproducible evaluation.
 - **Production controls** — OpenTelemetry traces, isolated replay, immutable prompt
   versions, red-team suites, per-turn budgets, tenant-isolated caches,
   single-flight request coalescing, and Redis-backed circuit breakers.
+- **User-governed long-term memory** — background LangMem extraction, cross-session
+  pgvector recall, conflict consolidation, confidence decay, expiry, and a complete
+  view/edit/delete surface where user-confirmed facts override automatic updates.
 
 ## Architecture
 
@@ -60,6 +63,9 @@ flowchart LR
     API -. traces / replay .-> OTEL[OpenTelemetry / Jaeger]
     API -. cases / metrics .-> EVAL[Evaluation Platform]
     API -. cache / breaker .-> REDIS[(Redis)]
+    API --> MEM[Memory recall]
+    MEM --> PG
+    ANSWER -. background extraction .-> MEM
 ```
 
 Most learning interactions are initiated through Chat. Lecture is exposed as a
@@ -83,6 +89,9 @@ user choose the next direction instead of silently guessing.
   pause for questions and continue from the same checkpoint.
 - Show the complete call chain—including Router decisions, agent outputs, model
   tiers, reasoning effort, token usage, latency, cost, retries, and checkpoints.
+- Learn durable preferences, relevant background, and long-term goals from normal
+  chats; recall them across sessions; and let the user inspect, correct, or delete
+  every stored memory.
 
 Web search is disabled by default and only runs after explicit user authorization.
 If the available evidence is insufficient, the answer flow is designed to say so
@@ -99,6 +108,7 @@ instead of filling the gap with unsupported claims.
 | Agent security | Four trust boundaries, quarantine/redaction, consent gates, red-team CI | [Security and red-team evaluation](docs/16-agent-security-red-team.md) |
 | Resource governance | Budget reservations, tier downgrade, cache isolation, distributed breakers | [Resource governance](docs/17-resource-governance.md) |
 | Resilience | Retry, permanent failure, budget contention, cache stampede, circuit recovery | [Load and fault testing](docs/18-resilience-load-testing.md) |
+| Long-term memory | LangMem consolidation, pgvector recall, decay/expiry, user CRUD and tenant isolation | [Long-term memory](docs/19-long-term-memory.md) |
 | Engineering decisions | Failure, root cause, fix, verification, trade-offs, remaining limits | [Agent engineering log](docs/13-agent-engineering-log.md) |
 
 ### Multi-Agent Benchmark
@@ -217,6 +227,9 @@ cp .env.example .env
 | `TURN_BUDGET_SOFT_RATIO` | Threshold for downgrading new Smart calls to Fast |
 | `ROUTER_CACHE_TTL_SECONDS` / `WEB_SEARCH_CACHE_TTL_SECONDS` | Workspace-isolated Redis cache TTLs |
 | `CIRCUIT_BREAKER_FAILURE_THRESHOLD` / `CIRCUIT_BREAKER_RECOVERY_SECONDS` | Distributed breaker threshold and recovery window |
+| `MEMORY_ENABLED` / `MEMORY_RECALL_LIMIT` | Enable user memory and cap memories injected into a turn |
+| `MEMORY_MIN_CONFIDENCE` / `MEMORY_CONFIDENCE_HALF_LIFE_DAYS` | Trust threshold and time decay |
+| `MEMORY_DEFAULT_TTL_DAYS` / `MEMORY_MAX_PER_USER` | Automatic expiry and per-user storage cap |
 
 See [.env.example](.env.example) for the complete configuration contract.
 

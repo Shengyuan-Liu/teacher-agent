@@ -47,8 +47,13 @@ export default function PlanPanel({ workspaceId }: { workspaceId: string }) {
           {plan.stages.map((stage) => (
             <div key={stage.id} className={`stage ${stage.status}`}>
               <label className="stage-title">
+                <span className="stage-title-text">
+                  {stage.position + 1}. {stage.title}
+                </span>
+                <span className="muted">~{Math.round(stage.estimated_minutes / 60)}h</span>
                 <input
                   type="checkbox"
+                  aria-label={`Mark ${stage.title} as complete`}
                   checked={stage.status === 'done'}
                   onChange={(e) =>
                     toggleStage.mutate({
@@ -58,10 +63,6 @@ export default function PlanPanel({ workspaceId }: { workspaceId: string }) {
                     })
                   }
                 />
-                <span>
-                  {stage.position + 1}. {stage.title}
-                </span>
-                <span className="muted">~{Math.round(stage.estimated_minutes / 60)}h</span>
               </label>
               <div className="stage-body">
                 <MarkdownBlock content={stage.description} />

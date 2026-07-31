@@ -172,6 +172,18 @@ class Settings(BaseSettings):
     circuit_breaker_half_open_timeout_seconds: int = Field(default=15, ge=1, le=300)
     governance_redis_cooldown_seconds: int = Field(default=30, ge=1, le=300)
 
+    # Long-term user memory. Extraction is asynchronous and uses the Fast tier;
+    # recall remains available across workspaces because memories belong to the user.
+    memory_enabled: bool = True
+    memory_recall_limit: int = Field(default=6, ge=1, le=20)
+    memory_existing_limit: int = Field(default=12, ge=1, le=50)
+    memory_max_per_user: int = Field(default=200, ge=10, le=5_000)
+    memory_min_confidence: float = Field(default=0.65, ge=0, le=1)
+    memory_recall_score_threshold: float = Field(default=0.42, ge=0, le=1)
+    memory_confidence_half_life_days: int = Field(default=180, ge=1, le=3_650)
+    memory_default_ttl_days: int = Field(default=365, ge=1, le=3_650)
+    memory_job_timeout_seconds: int = Field(default=120, ge=10, le=600)
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def model_prices(self) -> dict[str, tuple[float, float]]:

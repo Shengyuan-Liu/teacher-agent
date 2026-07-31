@@ -22,6 +22,7 @@ def default_prompts() -> tuple[BuiltinPrompt, ...]:
         _SYNTHESIS_SYSTEM,
         _WORKER_SYSTEM,
     )
+    from app.prompts.memory import MEMORY_EXTRACTION_INSTRUCTIONS
     from app.services.chat_stream import MULTI_AGENT_ANSWER_SYSTEM
 
     return (
@@ -36,6 +37,12 @@ def default_prompts() -> tuple[BuiltinPrompt, ...]:
             version=1,
             description="Synthesize Web and local evidence into one cited answer.",
             template=MULTI_AGENT_ANSWER_SYSTEM,
+        ),
+        BuiltinPrompt(
+            key="memory.extract",
+            version=1,
+            description="Extract and consolidate durable user memories.",
+            template=MEMORY_EXTRACTION_INSTRUCTIONS,
         ),
         BuiltinPrompt(
             key="planner.draft",

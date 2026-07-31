@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import LecturePanel from '@/components/LecturePanel'
+import MemoryPanel from '@/components/MemoryPanel'
 import EvaluationPanel from '@/components/EvaluationPanel'
 import ObservabilityPanel from '@/components/ObservabilityPanel'
 import PlanPanel from '@/components/PlanPanel'
@@ -51,7 +52,14 @@ function SessionList({ workspaceId }: { workspaceId: string }) {
 export default function Workspace() {
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useState<
-    'chats' | 'lectures' | 'plan' | 'sources' | 'prompts' | 'evals' | 'observability'
+    | 'chats'
+    | 'lectures'
+    | 'plan'
+    | 'sources'
+    | 'memories'
+    | 'prompts'
+    | 'evals'
+    | 'observability'
   >('chats')
   const [question, setQuestion] = useState('')
   const navigate = useNavigate()
@@ -87,6 +95,7 @@ export default function Workspace() {
             ['lectures', 'Lectures'],
             ['plan', 'Plan'],
             ['sources', 'Sources'],
+            ['memories', 'Memory'],
             ['prompts', 'Prompts'],
             ['evals', 'Evaluations'],
             ['observability', 'Observability'],
@@ -108,6 +117,7 @@ export default function Workspace() {
         {tab === 'lectures' && <LecturePanel workspaceId={id} />}
         {tab === 'plan' && <PlanPanel workspaceId={id} />}
         {tab === 'sources' && <SourcePanel workspaceId={id} />}
+        {tab === 'memories' && <MemoryPanel workspaceId={id} />}
         {tab === 'prompts' && <PromptRegistryPanel workspaceId={id} />}
         {tab === 'evals' && <EvaluationPanel workspaceId={id} />}
         {tab === 'observability' && <ObservabilityPanel workspaceId={id} />}

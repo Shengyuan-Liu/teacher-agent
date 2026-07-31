@@ -245,3 +245,5 @@ logs/run_logs/
 pgdata/
 
 .vscode
+
+book/

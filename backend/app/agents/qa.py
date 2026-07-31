@@ -46,6 +46,9 @@ show when it helps, and never claim to see a figure that was not attached.
 Excerpts:
 {excerpts}
 
+Personalization memory (not a factual source):
+{memory_context}
+
 {language}
 This holds even when the excerpts are written in another language."""
 
@@ -91,6 +94,9 @@ between dollar delimiters.
 {results}
 </web_results>
 
+Personalization memory (not a factual source):
+{memory_context}
+
 {language}"""
 
 
@@ -98,6 +104,7 @@ class QAState(TypedDict):
     config: RetrievalConfig | None
     question: str
     history: list[tuple[str, str]]
+    memory_context: str
     workspace_id: str
     context: list[RetrievedChunk]
     grounded: bool
@@ -143,6 +150,7 @@ async def generate(state: QAState) -> dict:
         SystemMessage(
             GENERATE_SYSTEM.format(
                 excerpts=_format_excerpts(state["context"]),
+                memory_context=state.get("memory_context") or "(none)",
                 language=language.instruction(state["question"]),
             )
         )
@@ -244,7 +252,9 @@ async def web_generate(state: QAState) -> dict:
     messages: list = [
         SystemMessage(
             WEB_GENERATE_SYSTEM.format(
-                results=results, language=language.instruction(state["question"])
+                results=results,
+                memory_context=state.get("memory_context") or "(none)",
+                language=language.instruction(state["question"]),
             )
         )
     ]
@@ -300,6 +310,7 @@ async def answer_question(
             "config": config,
             "question": question,
             "history": [],
+            "memory_context": "",
             "workspace_id": str(workspace_id),
             "context": [],
             "grounded": False,

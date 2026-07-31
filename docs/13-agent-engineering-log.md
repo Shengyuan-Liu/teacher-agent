@@ -604,3 +604,42 @@ Redis 测试 stub 的 `ex` 参数，它必须匹配生产代码的关键字 TTL 
 **取舍与剩余边界**：本次是等价重构，没有修改 Router、DAG、模型选择或重试次数；未为
 追求重复率数字而抽象后端 SSE 编排。生产 bundle 仍提示单 chunk 超过 500 kB，后续可按
 路由做 lazy loading，但它是加载性能工作，不应混入本次 Agent 行为保持型清理。
+
+## AE-023 — 用户可治理的跨会话长期记忆
+
+**问题**：Chat 只能读取当前会话最近消息，用户每次新开对话都要重复说明表达偏好、职业背景
+和长期目标；系统也没有冲突合并、遗忘机制或“Agent 记住了什么”的可见控制面。
+
+**根因**：Message 是会话日志而不是用户语义档案；RAG vector 只索引 workspace 教材，不能把
+用户事实与资料证据混存；同步调用链没有适合做非关键记忆提取的低延迟边界。
+
+**方案**：
+
+- 采用 LangMem structured memory manager，让 Fast 模型比较最新 user message 与相似现有
+  memories 后执行 insert/update/delete，不自研 tool-call consolidation 协议；
+- 复用 PostgreSQL + pgvector 建立 user-owned `UserMemory`，保存 semantic slot、kind、来源、
+  confidence、importance、expiry、访问统计和 embedding；`user_id + memory_key` 保证确定性合并；
+- assistant Message 作为后台 job idempotency marker，Chat commit 后才向 ARQ 排队，三次重试、
+  timeout 和 fail-open 保证记忆故障不会卡住回答；
+- 每轮按用户全局范围做 semantic recall，结合相似度、衰减置信度、重要性和同 workspace boost；
+  memory 只作为 untrusted personalization context，不作为 RAG/Web 事实来源；
+- 自动记忆有半衰期、默认 TTL、每日清理和 per-user cap；用户编辑后固定为 confirmed，自动
+  提取不得覆盖；新增 Memory UI 和 tenant-filtered REST CRUD；
+- 调用链显示 recall 的 embedding model、命中结果以及 background extraction 使用的 Fast model；
+  `memory.extract v1` 纳入 Prompt Registry。
+
+**遇到的实现问题与解决**：LangMem 会检查并 bind 真实 `BaseChatModel`，现有治理 proxy 只在
+类型层 cast，直接传入会被当成 model identifier；因此增加仅供有界后台工具调用的 raw model
+入口，成本边界改由 ARQ timeout/retry/cap 控制。SQLAlchemy `onupdate` 在 flush 后会 expire
+`updated_at`，异步 response 序列化触发 MissingGreenlet；PATCH 在序列化前显式 refresh。
+pgvector HNSW index 同时声明在 ORM metadata，保证 `alembic check` 不把生产索引误判为 drift。
+
+**验证**：新增 6 个 memory tests，覆盖中英文提取 gate、置信度半衰期、prompt trust boundary、
+跨 workspace CRUD/跨 tenant 404、“详细→简短”冲突更新同一个 semantic slot，以及 Chat 调用链
+展示后台 job/model；后端完整 206 tests、前端 32 tests、TypeScript production build、Ruff 与
+Alembic metadata check 通过。
+
+**取舍与剩余边界**：durable cue 节省普通问答的一次 LLM 调用，但可能漏掉非常隐含的背景；
+后台提取不计入原 turn budget，也尚未形成独立 AgentRun；删除为 hard delete，没有合规审计墓碑
+或一键导出；没有跨用户共享、关系图和 episodic memory。LangMem/Trustcall 当前还发出一条
+LangGraph v1 deprecation warning，功能不受影响，升级依赖时需跟踪其 v2 兼容版本。

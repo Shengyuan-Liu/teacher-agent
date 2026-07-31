@@ -84,6 +84,12 @@ from app.services.agent_security import (
 )
 from app.services.assessment import create_assessment_from_bank
 from app.services.mastery import record_mastery
+from app.services.memory import (
+    enqueue_memory_extraction,
+    format_memory_context,
+    recall_memories,
+    should_extract_memory,
+)
 from app.services.providers import IntelligenceTier, chat_model, model_trace
 from app.services.rate_limit import over_rate_limit
 from app.services.resource_governance import resource_payload
@@ -1426,6 +1432,7 @@ async def _run_multi_agent(
     stage_result,
     trace: list[dict],
     turn,
+    memory_context: str = "",
 ) -> AsyncGenerator[dict, None]:
     """Execute the multi-source answer as a typed, dependency-aware DAG."""
     local_citations: list[dict] = []
@@ -1440,6 +1447,7 @@ async def _run_multi_agent(
         state = {
             "question": task.query,
             "history": history,
+            "memory_context": memory_context,
             "workspace_id": str(session.workspace_id),
             "context": [],
             "grounded": False,
@@ -1554,9 +1562,12 @@ async def _run_multi_agent(
             workspace_id=session.workspace_id,
             step="multi_agent_answer",
         )
+        system_messages = [SystemMessage(prompt.text)]
+        if memory_context:
+            system_messages.append(SystemMessage(memory_context))
         reply = await chat_model(IntelligenceTier.SMART).ainvoke(
             [
-                SystemMessage(prompt.text),
+                *system_messages,
                 HumanMessage(
                     f"Original request:\n{question}\n\nCombined context:\n"
                     "<combined_context>\n"
@@ -2081,6 +2092,43 @@ async def _stream_answer_impl(
         agent_name="governance",
     )
 
+    memory_context = ""
+    history_with_memory = history_pairs
+    if user_id is not None and settings.memory_enabled:
+        yield stage("memory_recall", "Recalling relevant user context", agent_name="memory")
+        try:
+            async with AsyncSessionLocal() as db:
+                recalled = await recall_memories(
+                    db,
+                    user_id=user_id,
+                    query=question,
+                    workspace_id=session.workspace_id,
+                )
+            memory_context = format_memory_context(recalled)
+            if memory_context:
+                history_with_memory = [*history_pairs, ("system", memory_context)]
+            memory_result = {
+                "count": len(recalled),
+                "embedding_provider": settings.embedding_provider,
+                "embedding_model": settings.embedding_model,
+                "memories": [item.model_dump(mode="json") for item in recalled],
+            }
+        except Exception as exc:
+            log.warning("memory.recall_failed", user_id=str(user_id), error=str(exc))
+            memory_result = {
+                "count": 0,
+                "error": str(exc)[:300],
+                "fallback": "continue_without_memory",
+            }
+        yield stage_result(
+            "memory_recall",
+            "Recalling relevant user context",
+            memory_result,
+            agent_name="memory",
+        )
+    state["history"] = history_pairs
+    state["memory_context"] = memory_context
+
     # Show the router immediately while its model call is running. Web is still
     # selected only when the deployment allows it and this turn explicitly asks.
     persisted_dag = await load_persisted_task_dag(execution_key) if resume_incomplete else None
@@ -2280,13 +2328,14 @@ async def _stream_answer_impl(
         async for event in _run_multi_agent(
             session,
             question,
-            history_pairs,
+            history_with_memory,
             dag,
             execution_key,
             stage,
             stage_result,
             trace,
             turn,
+            memory_context,
         ):
             yield event
         return
@@ -2310,7 +2359,7 @@ async def _stream_answer_impl(
 
     if intent == "plan" and user_id is not None:
         async for event in _run_plan(
-            session, user_id, question, history_pairs, stage, stage_result, trace, turn
+            session, user_id, question, history_with_memory, stage, stage_result, trace, turn
         ):
             yield event
         return
@@ -2327,7 +2376,7 @@ async def _stream_answer_impl(
             session,
             user_id,
             question,
-            history_pairs,
+            history_with_memory,
             stage,
             stage_result,
             trace,
@@ -2565,6 +2614,48 @@ async def stream_answer(
             intent_override,
             request_id,
         ):
+            if (
+                event.get("event") == "done"
+                and user_id is not None
+                and should_extract_memory(question)
+            ):
+                try:
+                    done = json.loads(event.get("data") or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    done = {}
+                if not done.get("duplicate") and not done.get("security_blocked"):
+                    selection = model_trace(IntelligenceTier.FAST)
+                    memory_stage = {
+                        "event": "stage",
+                        "data": json.dumps(
+                            {
+                                "agent": "memory",
+                                "stage": "memory_write",
+                                "label": "Scheduling long-term memory consolidation",
+                                **selection,
+                            }
+                        ),
+                    }
+                    if recorder is not None:
+                        recorder.consume_event(memory_stage)
+                    yield memory_stage
+                    queued = await enqueue_memory_extraction(uuid.UUID(done["message_id"]))
+                    memory_result = {
+                        "event": "stage_result",
+                        "data": json.dumps(
+                            {
+                                "stage": "memory_write",
+                                "result": {
+                                    "status": "queued" if queued else "queue_unavailable",
+                                    "execution": "background",
+                                },
+                                **selection,
+                            }
+                        ),
+                    }
+                    if recorder is not None:
+                        recorder.consume_event(memory_result)
+                    yield memory_result
             if recorder is not None:
                 recorder.consume_event(event)
             yield event

@@ -387,6 +387,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dydantic"
+version = "0.0.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/08/c5/2d097e5a4816b15186c1ae06c5cfe3c332e69a0f3556dc6cee2d370acf2a/dydantic-0.0.8.tar.gz", hash = "sha256:14a31d4cdfce314ce3e69e8f8c7c46cbc26ce3ce4485de0832260386c612942f", size = 8115, upload-time = "2025-01-29T20:36:13.771Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/7c/a1b120141a300853d82291faf0ba1a95133fa390e4b7d773647b69c8c0f4/dydantic-0.0.8-py3-none-any.whl", hash = "sha256:cd0a991f523bd8632699872f1c0c4278415dd04783e36adec5428defa0afb721", size = 8637, upload-time = "2025-01-29T20:36:12.217Z" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -671,6 +683,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain"
+version = "1.3.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/68/a6dbad9c22df4087a0f9e79ddd46226c442b30128bfeee538d5889492a73/langchain-1.3.14.tar.gz", hash = "sha256:1b6696c72ba3bbbce54d745e0180742c9f6ece8bbc59ed5a46c3e20b9a435929", size = 645181, upload-time = "2026-07-16T13:28:18.29Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/ec/0f942e78a621f8e3162ff1ed24284f469aaf51fb4607ee5831c626f2b2bc/langchain-1.3.14-py3-none-any.whl", hash = "sha256:4d10dbe91005952cddd56d0dc77aa108964da6bae90ab20063653957e901f782", size = 139560, upload-time = "2026-07-16T13:28:16.498Z" },
+]
+
+[[package]]
 name = "langchain-anthropic"
 version = "1.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -824,6 +850,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b4/2b/bd8ac26d4e97f6df88ef05ce5b6a38945a3903e1025d926f4752aa88aa97/langgraph_sdk-0.4.2.tar.gz", hash = "sha256:b88f0f5f6328ac0680d6790614a905b2bcfa257f2276dba4e38f0e86db0aa738", size = 348327, upload-time = "2026-06-01T17:51:19.856Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/05/aac507337cceae773c2cc9ab91eb6301963af7aeeb55b4217a00e15aff17/langgraph_sdk-0.4.2-py3-none-any.whl", hash = "sha256:75fa5096c1177ce39c847096a8fe3745ffd480ddb412995f836e9f5f884c43dd", size = 160521, upload-time = "2026-06-01T17:51:18.849Z" },
+]
+
+[[package]]
+name = "langmem"
+version = "0.0.30"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-core" },
+    { name = "langchain-openai" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint" },
+    { name = "langsmith" },
+    { name = "trustcall" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e2/34/82c96c749984690fdfccd7d13297853a6ac6d04b022ca39abca6e5c13c59/langmem-0.0.30.tar.gz", hash = "sha256:4e27920979f8253a96d279f4f97b1aebbfb49e95a46d5269433488ed044756e1", size = 244334, upload-time = "2025-10-27T22:21:56.246Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/08/c7bc95456f6e02819e9fed56aa01578c3b8ee1a47b520994efc37e9febcc/langmem-0.0.30-py3-none-any.whl", hash = "sha256:142f040014493eebd67e1055c0642f9ab38868b5b1fde5c8f2d39add57f4ba5b", size = 67122, upload-time = "2025-10-27T22:21:54.647Z" },
 ]
 
 [[package]]
@@ -2004,6 +2049,7 @@ dependencies = [
     { name = "langdetect" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
+    { name = "langmem" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-instrumentation-fastapi" },
@@ -2066,6 +2112,7 @@ requires-dist = [
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "langgraph", specifier = ">=1.0,<2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.2" },
+    { name = "langmem", specifier = ">=0.0.30,<0.1" },
     { name = "markitdown", extras = ["docx", "pptx", "xlsx", "pdf"], marker = "extra == 'ingestion'", specifier = ">=0.0.1a3" },
     { name = "opentelemetry-api", specifier = ">=1.38,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.38,<2" },
@@ -2163,6 +2210,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e8/19/24833e905df2d80e3bb67424f95febcc17709a1f61a522120bc438afca70/trafilatura-2.1.0.tar.gz", hash = "sha256:f689e2116fc89c7bc0b9a296d01dcfe2eb0b5455f8c371a77dc0db1f06a05643", size = 263876, upload-time = "2026-06-07T17:43:31.829Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/78/4ad99d79aee2784f49f20fd0a29058ce4c032fe4439047924c43521cd211/trafilatura-2.1.0-py3-none-any.whl", hash = "sha256:0eded5207a806445ddebbe36eae30b9035fe6a2f233c36f6fe82663fca8b9d30", size = 134600, upload-time = "2026-06-07T17:43:28.404Z" },
+]
+
+[[package]]
+name = "trustcall"
+version = "0.0.39"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dydantic" },
+    { name = "jsonpatch" },
+    { name = "langgraph" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/72/4cdb54a31952827e8b58e11ea286bbfe2d3aa0ffb77a2f87dbc1c7ea77d3/trustcall-0.0.39.tar.gz", hash = "sha256:ec315818224501b9537ce6b7618dbc21be41210c6e8f2e239169a5a00912cd6e", size = 38637, upload-time = "2025-04-14T22:02:50.857Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/3a/58de925a104ce554fc250b833fe76401c7822aa8d65f2002cb53195e6c64/trustcall-0.0.39-py3-none-any.whl", hash = "sha256:d7da42e0bba816c0539b2936dfed90ffb3ea8d789e548e73865d416f8ac4ee64", size = 30073, upload-time = "2025-04-14T22:02:49.402Z" },
 ]
 
 [[package]]
