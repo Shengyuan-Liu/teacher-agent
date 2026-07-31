@@ -87,11 +87,45 @@
 - [ ] 细化大文件摄取进度，并完成移动端 Lecture 卡片体验验收。
 - [ ] 设计并实现按小节版本化的 narration/audio/video 异步媒体生成流水线与播放器。
 
-## Phase 5（远期，非承诺范围）
-- 多 LLM/Embedding 供应商的生产级切换与成本看板
-- 协作场景：分享学习空间只读链接、多人共用同一课程资料
-- 语音/TTS 讲课、移动端适配
-- 更丰富的题型（拖拽排序、图表标注题）与代码题的沙箱执行评测
+## Phase 5 — AI Engineering 生产化
+
+- 统一 AI Evaluation Platform：版本化 dataset、可插拔 suite、逐 case 结果、baseline 比较、回归 gate 和 Dashboard。
+- Observability：持久化 Agent run/span、延迟分解、token/成本与错误分类，支持按模型和 Agent 聚合。
+- Task DAG / durable execution：显式依赖、共享 blackboard、幂等 worker、重试/降级与部分结果恢复。
+- Multi-Agent coordination benchmark：比较单 Agent、并发 fan-out、监督者/worker 在质量、延迟、成本上的 trade-off。
+- **验收标准**：每次发布有可复现的质量基线；关键指标退化会阻止发布；一次线上失败能定位到具体 Agent、模型、输入版本和 span。
+
+当前状态（2026-07-31）：
+
+- [x] `EvalDataset → EvalCase → EvalRun → EvalResult` 统一持久化模型与 Alembic migration。
+- [x] Suite registry、通用 Runner、逐 case checkpoint、异常隔离、指标聚合与 token/成本记录。
+- [x] Run 快照模型分层、embedding/reranker 配置与 Git SHA；Result 保存实际 model calls。
+- [x] 绝对指标下限和相对 baseline 最大回归 gate；执行状态与质量状态分离。
+- [x] Structured Output、Router Contract、RAG Retrieval 三个首批适配器。
+- [x] Workspace Evaluation Dashboard：starter/import、异步运行、baseline 和 case 下钻。
+- [x] `make eval-fast` 与 GitHub Actions 无模型回归 gate，覆盖 12 个 golden/adversarial cases。
+- [x] OpenTelemetry SDK 与 FastAPI、HTTPX、SQLAlchemy instrumentation；OTLP/console/none 可配置导出。
+- [x] AgentRun / AgentSpan 持久化、统一 trace ID、Agent waterfall、模型调用 token/成本和错误聚合。
+- [x] Workspace Observability Dashboard 与隔离 Replay；对比 latency、token、cost 和输出变化，不污染 Chat 历史。
+- [x] `OTEL_CAPTURE_CONTENT` 隐私开关；关闭内容留存时继续采集指标并禁止 Replay。
+- [x] Router 任务升级为 Typed Task DAG：稳定 ID、typed node、显式依赖、拓扑校验与旧格式归一化。
+- [x] DAG Executor 支持同层并发、共享 blackboard、节点超时/重试和依赖失败传播。
+- [x] Web + RAG + Answer 改为显式 fan-out/fan-in；DAG 节点状态进入调用链、AgentRun 和 Replay。
+- [x] 前端调用链可视化 DAG 的并行层、依赖层、状态、尝试次数，并保留完整 Raw JSON。
+- [x] Multi-Agent Coordination suite：single-agent、Typed DAG、顺序 DAG、无 synthesis 四策略消融。
+- [x] Deterministic benchmark 进入 CI；Dashboard 支持一键 ablation matrix、live matrix 和跨策略指标表。
+- [x] 建立 Agent Engineering Log，并用仓库级规则要求后续 Agent 优化同步记录问题、方案和验证。
+- [ ] 增加调用真实 Router 模型的语义准确率 suite，并从匿名化对话 failure 中沉淀 production cases。
+- [ ] 增加 RAG answer faithfulness/correctness judge、Lecture 状态机和 multi-agent coordination suites。
+- [ ] 实现 production failure 一键提升为 Eval Case、nightly paid eval 和 release baseline promotion。
+- [ ] 将 DAG 节点升级为独立 durable checkpoint：幂等 worker、进程重启恢复、可选依赖与降级。
+- [ ] 对 live multi-agent matrix 做固定模型版本的多次重复实验，计算 P50/P95 与置信区间并发布报告。
+
+## Phase 6（远期，非承诺范围）
+
+- 协作场景：分享学习空间只读链接、多人共用同一课程资料。
+- 语音/TTS 讲课、移动端适配。
+- 更丰富的题型（拖拽排序、图表标注题）与代码题的沙箱执行评测。
 
 ## 里程碑间的依赖关系
 
@@ -101,7 +135,8 @@ flowchart LR
     P1 --> P2[Phase 2\n摄取完整化+计划+题库]
     P2 --> P3[Phase 3\n测验+掌握度+讲解]
     P3 --> P4[Phase 4\nLecture 模式]
-    P4 --> P5[Phase 5\n远期扩展]
+    P4 --> P5[Phase 5\nAI Engineering 生产化]
+    P5 --> P6[Phase 6\n远期扩展]
 ```
 
 ## 风险与关注点
@@ -116,5 +151,5 @@ flowchart LR
 
 ## 持续集成
 
-- GitHub Actions 在 PostgreSQL + pgvector 与 Redis 服务上执行全部后端迁移、Ruff 和 pytest。
-- 前端执行 Vitest、oxlint 与生产构建；真实资料质量评测仍需人工维护的可移植样本集，不能由单元测试替代。
+- GitHub Actions 在 PostgreSQL + pgvector 与 Redis 服务上执行全部后端迁移、Ruff、无模型 Eval regression gate 和 pytest。
+- 前端执行 Vitest、oxlint 与生产构建；真实资料和付费模型评测进入 nightly/release workflow，不能由单元测试替代。

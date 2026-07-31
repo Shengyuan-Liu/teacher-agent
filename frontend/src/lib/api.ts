@@ -341,6 +341,205 @@ export interface ChatSession {
   created_at: string
 }
 
+export interface EvalSuite {
+  name: string
+  description: string
+  metrics: string[]
+  requires_workspace: boolean
+  requires_model: boolean
+}
+
+export interface EvalCase {
+  id: string
+  key: string
+  position: number
+  input: Record<string, unknown>
+  expected: Record<string, unknown>
+  tags: string[]
+  metadata: Record<string, unknown>
+  enabled: boolean
+}
+
+export interface EvalDataset {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  suite: string
+  version: number
+  default_config: Record<string, unknown>
+  thresholds: Record<string, unknown>
+  metadata: Record<string, unknown>
+  case_count: number
+  created_at: string
+  cases: EvalCase[] | null
+}
+
+export interface EvalResult {
+  id: string
+  case_id: string
+  case_key: string
+  status: string
+  passed: boolean | null
+  input: Record<string, unknown>
+  expected: Record<string, unknown>
+  output: Record<string, unknown>
+  scores: Record<string, number>
+  details: Record<string, unknown>
+  latency_ms: number | null
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+  error: string | null
+}
+
+export interface EvalRun {
+  id: string
+  dataset_id: string
+  workspace_id: string
+  baseline_run_id: string | null
+  suite: string
+  label: string
+  variant: string | null
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  config: Record<string, unknown>
+  summary: {
+    cases?: number
+    passed?: number
+    errors?: number
+    pass_rate?: number
+    gate_passed?: boolean
+    metrics?: Record<string, number>
+    cost_usd?: number | null
+    latency_ms?: number
+    input_tokens?: number
+    output_tokens?: number
+  }
+  comparison: {
+    baseline_run_id?: string | null
+    regressions?: string[]
+    gate_passed?: boolean
+    metrics?: Record<
+      string,
+      {
+        baseline: number | null
+        current: number | null
+        delta: number | null
+        max_regression: number | null
+        regressed: boolean
+      }
+    >
+  }
+  git_sha: string | null
+  error: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  dataset_name: string
+  results: EvalResult[] | null
+}
+
+export interface EvalDatasetInput {
+  name: string
+  description?: string
+  suite: string
+  version?: number
+  default_config?: Record<string, unknown>
+  thresholds?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  cases: {
+    key: string
+    input: Record<string, unknown>
+    expected: Record<string, unknown>
+    tags?: string[]
+    metadata?: Record<string, unknown>
+    enabled?: boolean
+  }[]
+}
+
+export interface AgentSpan {
+  id: string
+  trace_id: string
+  span_id: string
+  parent_span_id: string | null
+  ordinal: number
+  name: string
+  agent: string
+  stage: string
+  kind: string
+  status: string
+  provider: string | null
+  model: string | null
+  tier: string | null
+  reasoning_effort: string | null
+  attributes: Record<string, unknown>
+  input: Record<string, unknown>
+  output: Record<string, unknown>
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+  latency_ms: number | null
+  error: string | null
+  started_at: string
+  completed_at: string | null
+}
+
+export interface AgentRun {
+  id: string
+  workspace_id: string
+  session_id: string | null
+  replay_of_id: string | null
+  trace_id: string
+  root_span_id: string
+  kind: 'chat' | 'replay' | 'idempotency_replay'
+  status: 'running' | 'completed' | 'error' | 'cancelled'
+  intent: string | null
+  input: Record<string, unknown>
+  output: Record<string, unknown>
+  model_config: Record<string, unknown>
+  usage: Usage | Record<string, never>
+  latency_ms: number | null
+  error: string | null
+  started_at: string
+  completed_at: string | null
+  created_at: string
+  spans: AgentSpan[] | null
+  replay_comparison: {
+    source_run_id: string
+    latency_delta_ms: number | null
+    input_tokens_delta: number
+    output_tokens_delta: number
+    cost_delta_usd: number | null
+    output_changed: boolean
+  } | null
+}
+
+export interface ObservabilityBreakdown {
+  name: string
+  calls: number
+  errors: number
+  p50_latency_ms: number
+  p95_latency_ms: number
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+}
+
+export interface ObservabilitySummary {
+  window_hours: number
+  runs: number
+  completed: number
+  errors: number
+  success_rate: number
+  p50_latency_ms: number
+  p95_latency_ms: number
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+  by_agent: ObservabilityBreakdown[]
+  by_model: ObservabilityBreakdown[]
+}
+
 export async function fetchImage(
   workspaceId: string,
   sourceId: string,
@@ -408,6 +607,47 @@ export const api = {
     request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`),
   listLectures: (workspaceId: string) =>
     request<LectureSummary[]>(`/workspaces/${workspaceId}/lectures`),
+
+  listEvalSuites: (workspaceId: string) =>
+    request<EvalSuite[]>(`/workspaces/${workspaceId}/evals/suites`),
+  listEvalDatasets: (workspaceId: string) =>
+    request<EvalDataset[]>(`/workspaces/${workspaceId}/evals/datasets`),
+  createEvalDataset: (workspaceId: string, body: EvalDatasetInput) =>
+    json<EvalDataset>(`/workspaces/${workspaceId}/evals/datasets`, 'POST', body),
+  createEvalStarter: (workspaceId: string, suite: string) =>
+    json<EvalDataset>(`/workspaces/${workspaceId}/evals/datasets/starter`, 'POST', { suite }),
+  deleteEvalDataset: (workspaceId: string, datasetId: string) =>
+    request<void>(`/workspaces/${workspaceId}/evals/datasets/${datasetId}`, {
+      method: 'DELETE',
+    }),
+  listEvalRuns: (workspaceId: string) =>
+    request<EvalRun[]>(`/workspaces/${workspaceId}/evals/runs`),
+  getEvalRun: (workspaceId: string, runId: string) =>
+    request<EvalRun>(`/workspaces/${workspaceId}/evals/runs/${runId}`),
+  createEvalRun: (
+    workspaceId: string,
+    datasetId: string,
+    body: {
+      label?: string
+      variant?: string
+      baseline_run_id?: string
+      config?: Record<string, unknown>
+    },
+  ) =>
+    json<EvalRun>(
+      `/workspaces/${workspaceId}/evals/datasets/${datasetId}/runs`,
+      'POST',
+      body,
+    ),
+
+  observabilitySummary: (workspaceId: string, hours = 24) =>
+    request<ObservabilitySummary>(
+      `/workspaces/${workspaceId}/observability/summary?hours=${hours}`,
+    ),
+  listAgentRuns: (workspaceId: string) =>
+    request<AgentRun[]>(`/workspaces/${workspaceId}/observability/runs`),
+  getAgentRun: (workspaceId: string, runId: string) =>
+    request<AgentRun>(`/workspaces/${workspaceId}/observability/runs/${runId}`),
 
   listPlans: (workspaceId: string) => request<StudyPlan[]>(`/workspaces/${workspaceId}/plans`),
   updateStage: (planId: string, stageId: string, status: 'pending' | 'done') =>
@@ -597,4 +837,16 @@ export async function streamAnswer(
       dispatchStreamEvent(event, data, handlers)
     }
   }
+}
+
+export async function replayAgentRun(
+  workspaceId: string,
+  runId: string,
+  handlers: AgentStreamHandlers,
+): Promise<void> {
+  return streamAgent(
+    `/workspaces/${workspaceId}/observability/runs/${runId}/replay/stream`,
+    {},
+    handlers,
+  )
 }

@@ -127,6 +127,20 @@ class Settings(BaseSettings):
 
     storage_dir: str = "./storage"
 
+    # OpenTelemetry export plus product-level AgentRun/AgentSpan persistence.
+    observability_enabled: bool = True
+    otel_service_name: str = "teacher-agent-backend"
+    otel_traces_exporter: Literal["none", "otlp", "console"] = "none"
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_exporter_otlp_headers: str = ""
+    otel_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    otel_capture_content: bool = True
+
+    # Typed Task DAG orchestration.
+    task_dag_max_nodes: int = Field(default=8, ge=1, le=32)
+    task_dag_node_timeout_seconds: float = Field(default=90, gt=0, le=600)
+    task_dag_max_attempts: int = Field(default=2, ge=1, le=5)
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def model_prices(self) -> dict[str, tuple[float, float]]:

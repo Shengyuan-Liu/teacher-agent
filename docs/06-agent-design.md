@@ -40,7 +40,7 @@ flowchart LR
     LectureGraph --> Mastery
 ```
 
-- **Orchestrator**：所有 Chat 请求先由 Fast 档小模型生成 `tasks[]` 计划，每项包含 Agent 和可独立执行的 query。简单请求只有一项；显式要求“联网查询 + 检查教材”等不同来源的复合请求会同时生成 `web` 与 `qa` 子任务。两个 Agent 并发收集网页正文与 RAG 片段，但不各自生成答案；Orchestrator 先把原始上下文统一编号并拼接，再只调用一次 Smart 档 Answer Agent。低置信度的候选方向属于“二选一”而非复合任务，此时 Router 不执行任务，而是在 Chat 消息内给出可点击选项。每个 Agent 的任务、上下文结果、模型档位和实际模型都会写入同一条调用链。
+- **Orchestrator**：所有 Chat 请求先由 Fast 档小模型生成 Typed Task DAG；每个节点包含稳定 ID、类型、可独立执行的 query 和显式依赖。简单请求是单节点图；“联网查询 + 检查教材”会生成并行的 `web` / `qa` knowledge 节点，以及依赖二者的 `answer` synthesis 节点。后端对 ID、依赖、环和 Agent 组合做确定性校验，再由 DAG Executor 按拓扑层并发执行，通过共享 blackboard 传递原始上下文。Answer Agent 统一编号证据后只调用一次 Smart 档模型。低置信度的候选方向属于“二选一”而非复合任务，此时 Router 不执行图，而是在 Chat 消息内给出可点击选项。每个节点的依赖、状态、尝试次数、返回、模型档位和实际模型都会写入同一条调用链。详见 [Typed Task DAG](12-typed-task-dag.md)。
 - **共享交互运行时**：问答、详细讲解、练习、计时测试、错题复习和掌握度查看在 Chat 中完成；Lecture 作为核心宣传功能拥有平级入口和专属页面，但仍使用相同的消息、SSE、trace、artifact 和 QA 子图，而不是复制 Agent 编排。
 - **多 Agent 边界**：当前组合执行面向知识获取任务（`qa` 与 `web`，可各有多个聚焦子问题）；测验、计划等会写数据库的动作型 Agent 仍保持单任务事务，避免一次模糊请求产生多个不可逆状态变更。
 - **子图（Subgraph）**：QA、Planner、Quiz、Lecture 各自是独立的 `StateGraph`，有各自的 State（TypedDict/Pydantic）、节点、边。子图之间通过共享的 Tools 和数据库访问层复用能力，而不是互相硬编码调用。

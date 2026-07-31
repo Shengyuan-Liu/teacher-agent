@@ -33,6 +33,12 @@ from app.agents.router import (
     filter_authorized_tasks,
     route_intent,
 )
+from app.agents.task_dag import (
+    TaskBlackboard,
+    TaskDAG,
+    TaskDAGExecutor,
+    TaskDAGValidationError,
+)
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import (
@@ -47,6 +53,7 @@ from app.models import (
 )
 from app.rag.retriever import RetrievedChunk
 from app.services import usage
+from app.services.agent_observability import AgentTraceRecorder
 from app.services.agent_runs import (
     EXPLANATION_MODEL_TIERS,
     EXPLANATION_STEPS,
@@ -1340,19 +1347,22 @@ async def _run_multi_agent(
     session: ChatSession,
     question: str,
     history: list[tuple[str, str]],
-    tasks: tuple[AgentTask, ...],
+    dag: TaskDAG,
     stage,
     stage_result,
     trace: list[dict],
     turn,
 ) -> AsyncGenerator[dict, None]:
-    """Collect RAG/web context concurrently, then call the answer model once."""
+    """Execute the multi-source answer as a typed, dependency-aware DAG."""
     local_citations: list[dict] = []
     web_citations: list[dict] = []
     context_blocks: list[str] = []
+    collection_summary: list[dict] = []
+    summarized_tasks: set[str] = set()
     remaining_context_chars = 40_000
+    source_number = 0
 
-    async def collect(task: AgentTask) -> dict:
+    async def collect(task: AgentTask, _blackboard: TaskBlackboard) -> dict:
         state = {
             "question": task.query,
             "history": history,
@@ -1369,32 +1379,10 @@ async def _run_multi_agent(
             return await collect_web_context(state)
         return await collect_rag_context(state)
 
-    for index, task in enumerate(tasks, 1):
-        prefix = f"task_{index}"
-        first_stage = "web_search" if task.agent == "web" else "retrieve"
-        first_label = "Searching the web" if task.agent == "web" else "Searching material"
-        first_tier = IntelligenceTier.FAST if task.agent == "web" else None
-        yield stage(
-            f"{prefix}.{first_stage}",
-            first_label,
-            agent_name=task.agent,
-            tier=first_tier,
-        )
-
-    try:
-        collected = await asyncio.gather(*(collect(task) for task in tasks))
-    except Exception as exc:
-        log.error("chat.multi_agent_collection_failed", session_id=str(session.id), error=str(exc))
-        yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
-        return
-
-    source_number = 0
-    collection_summary: list[dict] = []
-    for index, (task, payload) in enumerate(zip(tasks, collected, strict=True), 1):
-        prefix = f"task_{index}"
-        stage_name = "web_search" if task.agent == "web" else "retrieve"
-        label = "Searching the web" if task.agent == "web" else "Searching material"
-        tier = IntelligenceTier.FAST if task.agent == "web" else None
+    def summarize_collection(task: AgentTask, payload: dict) -> dict:
+        nonlocal remaining_context_chars, source_number
+        if task.id in summarized_tasks:
+            return next(item for item in collection_summary if item["task_id"] == task.id)
         if task.agent == "qa":
             chunks: list[RetrievedChunk] = payload.get("context", [])
             citations = _citations_payload(chunks)
@@ -1414,6 +1402,7 @@ async def _run_multi_agent(
                 remaining_context_chars -= len(excerpt)
                 context_blocks.append(f"[{source_number}] [LOCAL MATERIAL] ({where})\n{excerpt}")
             summary = {
+                "task_id": task.id,
                 "agent": task.agent,
                 "query": task.query,
                 "source_count": source_number - before_sources,
@@ -1439,6 +1428,7 @@ async def _run_multi_agent(
                     f"[{source_number}] [WEB] ({page['title']} — {page['url']})\n{excerpt}"
                 )
             summary = {
+                "task_id": task.id,
                 "agent": task.agent,
                 "query": task.query,
                 "search_query": payload.get("web_query"),
@@ -1447,21 +1437,14 @@ async def _run_multi_agent(
                 "pages": pages,
             }
         collection_summary.append(summary)
-        yield stage_result(
-            f"{prefix}.{stage_name}",
-            label,
-            summary,
-            agent_name=task.agent,
-            tier=tier,
-        )
+        summarized_tasks.add(task.id)
+        return summary
 
-    yield stage(
-        "answer",
-        "Answering from combined context",
-        agent_name="answer",
-        tier=IntelligenceTier.SMART,
-    )
-    try:
+    async def synthesize(task: AgentTask, blackboard: TaskBlackboard) -> dict[str, object]:
+        # The blackboard is the data boundary between fan-out workers and the
+        # synthesis node. Keep assembly idempotent because handlers may retry.
+        for dependency in task.depends_on:
+            summarize_collection(dag.node(dependency), blackboard.result(dependency))
         reply = await chat_model(IntelligenceTier.SMART).ainvoke(
             [
                 SystemMessage(
@@ -1476,19 +1459,113 @@ async def _run_multi_agent(
             ]
         )
         usage.record_message("multi_agent_answer", reply)
-        content = reply.text
-    except Exception as exc:
-        log.error("chat.multi_agent_answer_failed", error=str(exc))
-        yield {"event": "error", "data": json.dumps({"message": str(exc)[:500]})}
-        return
+        return {
+            "collections": collection_summary,
+            "source_count": source_number,
+            "answer": reply.text,
+        }
+
+    executor = TaskDAGExecutor(
+        dag,
+        {"qa": collect, "web": collect, "answer": synthesize},
+        default_timeout_seconds=settings.task_dag_node_timeout_seconds,
+        default_max_attempts=settings.task_dag_max_attempts,
+    )
+    yield stage("task_dag", "Building execution graph", agent_name="orchestrator")
     yield stage_result(
-        "answer",
-        "Answering from combined context",
-        {"collections": collection_summary, "source_count": source_number, "answer": content},
-        agent_name="answer",
-        tier=IntelligenceTier.SMART,
+        "task_dag",
+        "Building execution graph",
+        dag.as_payload(),
+        agent_name="orchestrator",
     )
 
+    answer_result: dict[str, object] | None = None
+    async for task_event in executor.run():
+        task = task_event.node
+        label = (
+            "Searching the web"
+            if task.agent == "web"
+            else "Searching material"
+            if task.agent == "qa"
+            else "Answering from combined context"
+        )
+        tier = (
+            IntelligenceTier.FAST
+            if task.agent == "web"
+            else IntelligenceTier.SMART
+            if task.agent == "answer"
+            else None
+        )
+        if task_event.type == "started":
+            yield stage(task.id, label, agent_name=task.agent, tier=tier)
+            continue
+
+        if task_event.type == "completed":
+            result = (
+                summarize_collection(task, task_event.result)
+                if task.agent in ("qa", "web")
+                else task_event.result
+            )
+            if task.agent == "answer":
+                answer_result = result
+            yield stage_result(
+                task.id,
+                label,
+                {
+                    "task_id": task.id,
+                    "depends_on": list(task.depends_on),
+                    "status": task_event.status,
+                    "attempts": task_event.attempts,
+                    **result,
+                    **(
+                        {
+                            "dag": dag.as_payload(
+                                statuses=executor.blackboard.statuses,
+                                attempts=executor.blackboard.attempts,
+                                errors=executor.blackboard.errors,
+                            )
+                        }
+                        if task.agent == "answer"
+                        else {}
+                    ),
+                },
+                agent_name=task.agent,
+                tier=tier,
+            )
+            continue
+
+        failure = {
+            "task_id": task.id,
+            "depends_on": list(task.depends_on),
+            "status": task_event.status,
+            "attempts": task_event.attempts,
+            "error": task_event.error,
+        }
+        # A blocked task never emitted a start event, so add one before its result.
+        if task_event.type == "blocked":
+            yield stage(task.id, label, agent_name=task.agent, tier=tier)
+        yield stage_result(
+            task.id,
+            label,
+            failure,
+            agent_name=task.agent,
+            tier=tier,
+        )
+
+    if answer_result is None:
+        failed = [f"{task_id}: {error}" for task_id, error in executor.blackboard.errors.items()]
+        message = "Task DAG did not produce an answer"
+        if failed:
+            message += " (" + "; ".join(failed) + ")"
+        log.error(
+            "chat.task_dag_failed",
+            session_id=str(session.id),
+            errors=executor.blackboard.errors,
+        )
+        yield {"event": "error", "data": json.dumps({"message": message[:500]})}
+        return
+
+    content = str(answer_result["answer"])
     used = _cited_numbers(content)
     local_citations = [item for item in local_citations if item["n"] in used]
     web_citations = [item for item in web_citations if item["n"] in used]
@@ -1506,7 +1583,7 @@ async def _run_multi_agent(
             content=content,
             citations=local_citations or None,
             web_citations=web_citations,
-            used_web_search=any(task.agent == "web" for task in tasks),
+            used_web_search=any(task.agent == "web" for task in dag.worker_nodes),
             usage=spent,
             trace=trace,
         )
@@ -1518,7 +1595,12 @@ async def _run_multi_agent(
                 {
                     "message_id": str(message.id),
                     "grounded": bool(local_citations or web_citations),
-                    "agents": [task.agent for task in tasks],
+                    "agents": [task.agent for task in dag.worker_nodes],
+                    "task_dag": dag.as_payload(
+                        statuses=executor.blackboard.statuses,
+                        attempts=executor.blackboard.attempts,
+                        errors=executor.blackboard.errors,
+                    ),
                 }
             ),
         }
@@ -1599,7 +1681,7 @@ def _replay_message_events(message: Message | None) -> list[dict]:
     return events
 
 
-async def stream_answer(
+async def _stream_answer_impl(
     session_id: uuid.UUID,
     question: str,
     force_web: bool = False,
@@ -1837,9 +1919,33 @@ async def stream_answer(
     if not tasks:
         intent = "qa"
         tasks = (AgentTask("qa", question),)
-    if len(tasks) == 1:
-        intent = tasks[0].agent
-    agent = "orchestrator" if len(tasks) > 1 else intent
+    try:
+        dag = TaskDAG.build(
+            tasks,
+            original_query=question,
+            max_nodes=settings.task_dag_max_nodes,
+            default_timeout_seconds=settings.task_dag_node_timeout_seconds,
+            default_max_attempts=settings.task_dag_max_attempts,
+        )
+    except TaskDAGValidationError as exc:
+        log.warning(
+            "chat.invalid_router_task_dag",
+            session_id=str(session.id),
+            error=str(exc),
+        )
+        intent = "qa"
+        tasks = (AgentTask("qa", question),)
+        dag = TaskDAG.build(
+            tasks,
+            original_query=question,
+            max_nodes=settings.task_dag_max_nodes,
+            default_timeout_seconds=settings.task_dag_node_timeout_seconds,
+            default_max_attempts=settings.task_dag_max_attempts,
+        )
+    worker_tasks = dag.worker_nodes
+    if len(worker_tasks) == 1:
+        intent = worker_tasks[0].agent
+    agent = "orchestrator" if dag.synthesis_node is not None else intent
     state["intent"] = intent
     _routed = {
         "web": "web search",
@@ -1856,8 +1962,19 @@ async def stream_answer(
         "Understanding request",
         {
             "intent": intent,
-            "tasks": [{"agent": task.agent, "query": task.query} for task in tasks],
-            "agent_count": len(tasks),
+            "tasks": [
+                {
+                    "id": task.id,
+                    "agent": task.agent,
+                    "query": task.query,
+                    "depends_on": list(task.depends_on),
+                    "kind": task.resolved_kind,
+                }
+                for task in dag.nodes
+            ],
+            "dag": dag.as_payload(),
+            "agent_count": len(dag.nodes),
+            "worker_agent_count": len(worker_tasks),
             "routed_to": _routed,
             "forced_by_user_action": force_web,
             "selected_by_user": intent_override is not None,
@@ -1878,7 +1995,7 @@ async def stream_answer(
     )
 
     if (
-        any(task.agent == "web" for task in tasks)
+        any(task.agent == "web" for task in worker_tasks)
         and user_id is not None
         and await over_rate_limit(
             user_id, "web_search", settings.web_search_rate_limit_per_hour, 3600
@@ -1890,9 +2007,9 @@ async def stream_answer(
         }
         return
 
-    if len(tasks) > 1:
+    if dag.synthesis_node is not None:
         async for event in _run_multi_agent(
-            session, question, history_pairs, tasks, stage, stage_result, trace, turn
+            session, question, history_pairs, dag, stage, stage_result, trace, turn
         ):
             yield event
         return
@@ -2072,3 +2189,61 @@ async def stream_answer(
             "event": "done",
             "data": json.dumps({"message_id": str(message.id), "grounded": grounded}),
         }
+
+
+async def stream_answer(
+    session_id: uuid.UUID,
+    question: str,
+    force_web: bool = False,
+    user_id: uuid.UUID | None = None,
+    intent_override: Intent | None = None,
+    request_id: uuid.UUID | None = None,
+) -> AsyncGenerator[dict, None]:
+    """Observe the existing chat runtime without coupling product work to OTLP availability."""
+    recorder = None
+    try:
+        recorder = await AgentTraceRecorder.create(
+            session_id=session_id,
+            user_id=user_id,
+            question=question,
+            force_web=force_web,
+            intent_override=intent_override,
+            request_id=request_id,
+        )
+    except Exception as exc:
+        log.warning("observability.run_start_failed", error=str(exc))
+
+    cancelled = False
+    otel_token = recorder.activate() if recorder is not None else None
+    try:
+        async for event in _stream_answer_impl(
+            session_id,
+            question,
+            force_web,
+            user_id,
+            intent_override,
+            request_id,
+        ):
+            if recorder is not None:
+                recorder.consume_event(event)
+            yield event
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
+    except Exception as exc:
+        if recorder is not None:
+            recorder.error = str(exc)[:4000]
+        raise
+    finally:
+        if recorder is not None:
+            try:
+                await recorder.finish(cancelled=cancelled)
+            except Exception as exc:
+                log.warning(
+                    "observability.run_finish_failed",
+                    run_id=str(recorder.run_id),
+                    error=str(exc),
+                )
+            finally:
+                if otel_token is not None:
+                    recorder.deactivate(otel_token)

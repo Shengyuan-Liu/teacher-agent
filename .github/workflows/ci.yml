@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, phase-3]
+    branches: [master]
   pull_request:
 
 jobs:
@@ -38,6 +38,8 @@ jobs:
       EMBEDDING_PROVIDER: openai
       OPENAI_API_KEY: test-key
       RERANKER: none
+      OBSERVABILITY_ENABLED: "true"
+      OTEL_TRACES_EXPORTER: none
     defaults:
       run:
         working-directory: backend
@@ -53,6 +55,7 @@ jobs:
       - run: PGPASSWORD=teacher_dev_pw psql -h localhost -U teacher -d teacher_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"
       - run: uv run alembic upgrade head
       - run: uv run ruff check app tests
+      - run: uv run python -m app.evaluation.cli fast
       - run: uv run pytest -q
 
   frontend:

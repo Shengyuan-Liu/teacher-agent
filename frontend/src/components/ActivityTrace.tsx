@@ -13,7 +13,90 @@ export interface TraceStep {
   reasoning_effort?: string
 }
 
+interface TaskDagNode {
+  [key: string]: TraceResult
+  id: string
+  agent: string
+  kind: string
+  depends_on: string[]
+  status: string
+  attempts: number
+}
+
+interface TaskDag {
+  [key: string]: TraceResult
+  type: 'task_dag'
+  layers: string[][]
+  nodes: TaskDagNode[]
+}
+
+function isTaskDag(value: Exclude<TraceResult, null>): value is TaskDag {
+  if (typeof value !== 'object' || Array.isArray(value)) return false
+  return (
+    value.type === 'task_dag' &&
+    Array.isArray(value.layers) &&
+    Array.isArray(value.nodes)
+  )
+}
+
+function TaskDagResult({ dag }: { dag: TaskDag }) {
+  const nodes = new Map(dag.nodes.map((node) => [node.id, node]))
+  return (
+    <div className="task-dag" aria-label="Task dependency graph">
+      <div className="task-dag-layers">
+        {dag.layers.map((layer, index) => (
+          <div className="task-dag-layer-wrap" key={layer.join(':')}>
+            {index > 0 && <span className="task-dag-arrow">→</span>}
+            <div className="task-dag-layer" aria-label={`DAG layer ${index + 1}`}>
+              {layer.map((taskId) => {
+                const node = nodes.get(taskId)
+                if (!node) return null
+                return (
+                  <div
+                    className={`task-dag-node task-dag-node-${node.status}`}
+                    key={node.id}
+                    title={
+                      node.depends_on.length
+                        ? `depends on ${node.depends_on.join(', ')}`
+                        : 'no dependencies'
+                    }
+                  >
+                    <span>{node.agent}</span>
+                    <code>{node.id}</code>
+                    <small>
+                      {node.status}
+                      {node.attempts > 0 ? ` · attempt ${node.attempts}` : ''}
+                    </small>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <details className="task-dag-raw">
+        <summary>Raw DAG result</summary>
+        <pre className="trace-result">{JSON.stringify(dag, null, 2)}</pre>
+      </details>
+    </div>
+  )
+}
+
 function Result({ value }: { value: Exclude<TraceResult, null> }) {
+  if (isTaskDag(value)) return <TaskDagResult dag={value} />
+  if (
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    value.dag !== null &&
+    isTaskDag(value.dag)
+  ) {
+    return (
+      <>
+        <TaskDagResult dag={value.dag} />
+        <pre className="trace-result">{JSON.stringify(value, null, 2)}</pre>
+      </>
+    )
+  }
   const rendered = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
   return <pre className="trace-result">{rendered}</pre>
 }

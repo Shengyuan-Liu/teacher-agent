@@ -16,12 +16,16 @@
 - 🎓 **互动讲课** — 在 Chat 中分节讲解、检验理解，插入问题后回到原进度，并可跨天恢复
 - 🧭 **过程透明** — Router、检索、规划和出题的每一步结果、模型与用量都显示在调用链中
 - 🧩 **复合问题多 Agent 协作** — 一次提问可同时拆给 Web 与 RAG Agent，再合并成带统一引用的回答
+- 🔀 **Typed Task DAG** — 显式依赖、拓扑并发、共享 blackboard、超时/重试与失败传播都可在调用链中检查
+- 📊 **Multi-Agent 消融实验** — 同一数据集比较 single-agent、并发 DAG、顺序 DAG 与无 synthesis 的质量/延迟/成本
 - 📄 **PDF 精确定位** — 摄取时保留原始页码，引用可直接打开对应页面
 - 🌐 **显式联网** — 只有用户主动要求或点击时才搜索，可先查看候选资料再决定是否入库
+- 🧪 **统一质量评测** — 版本化 golden set、逐 case 结果、模型/成本快照、baseline 对比与 CI 回归 gate
+- 🔭 **Agent 可观测与 Replay** — OpenTelemetry traces、Agent waterfall、按模型统计延迟/token/成本，并隔离重跑历史输入
 
 问答、详细讲解、随堂练习、正式测试、错题复习和掌握度从 Chat 发起；Lecture 同时拥有与 Chat 平级的课程入口、历史列表和专属播放页，并继续复用 Chat 的插问与 Agent 编排能力。当 Router 无法确定方向时，会先给出可点击选项让用户决定。
 
-> **当前进度**：Phase 1–3 主链路已经实现，Phase 4 的 Chat-first Lecture 闭环已进入实现与验收阶段。当前支持分节讲课、节间检验、插问后恢复以及持久化暂停/继续；性能、多语言和真实教材质量仍在打磨。完整设计见 [docs/](docs/README.md)，开发路线见 [路线图](docs/08-roadmap.md)。
+> **当前进度**：Phase 1–4 主链路已经实现；Phase 5 已完成统一 AI Evaluation、OpenTelemetry Observability / Replay、Typed Task DAG 和 Multi-Agent 消融平台首版，下一步补齐节点级 durable checkpoint 与真实模型重复实验报告。完整设计见 [docs/](docs/README.md)，开发路线见 [路线图](docs/08-roadmap.md)。
 
 ## 快速开始
 
@@ -35,6 +39,19 @@ make dev     # 启动
 然后打开 http://localhost:5300 —— 页面上三项都是绿点就说明环境正常。
 
 后端接口文档在 http://localhost:8000/docs。
+
+无需模型即可运行快速质量 gate：
+
+```bash
+make eval-fast
+```
+
+本地查看完整 OpenTelemetry waterfall：
+
+```bash
+make observability-up       # Jaeger UI: http://localhost:16686
+make observability-backend  # API 启用 OTLP export
+```
 
 ## 配置
 
@@ -50,6 +67,10 @@ cp .env.example .env
 | `LLM_FAST_MODEL` / `LLM_SMART_MODEL` | 可选的轻任务/高智能任务模型覆盖；OpenAI 默认使用 Luna/Terra |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | 对应的密钥 |
 | `WEB_SEARCH_ENABLED` | 是否允许联网补充资料，默认关闭 |
+| `OBSERVABILITY_ENABLED` / `OTEL_TRACES_EXPORTER` | Agent trace 持久化开关与外部 `none|otlp|console` 导出 |
+| `OTEL_CAPTURE_CONTENT` | 是否为 Replay 在 PostgreSQL 保留输入内容；关闭后仍记录指标 |
+| `TASK_DAG_MAX_NODES` / `TASK_DAG_NODE_TIMEOUT_SECONDS` | DAG 节点数量上限与单次执行超时 |
+| `TASK_DAG_MAX_ATTEMPTS` | DAG 节点默认最大尝试次数 |
 
 不填 key 也能启动，只是用不了需要模型的功能。
 
