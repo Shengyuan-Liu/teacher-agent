@@ -1,3 +1,11 @@
+"""Authenticated Chat HTTP boundary; execution and persistence live in the stream service.
+
+The request-scoped database session is used only to prove ownership before the
+response starts. The SSE generator opens its own short-lived sessions because it
+can outlive the FastAPI dependency scope and provider calls must not hold a pooled
+connection or transaction.
+"""
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status

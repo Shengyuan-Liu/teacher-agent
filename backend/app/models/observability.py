@@ -13,6 +13,8 @@ from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Queryable root trace and reproducibility snapshot for one Agent turn."""
+
     __tablename__ = "agent_runs"
 
     workspace_id: Mapped[uuid.UUID] = mapped_column(
@@ -61,6 +63,8 @@ class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class AgentSpan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Product-level Agent/model span correlated to external OTel by trace id."""
+
     __tablename__ = "agent_spans"
 
     run_id: Mapped[uuid.UUID] = mapped_column(

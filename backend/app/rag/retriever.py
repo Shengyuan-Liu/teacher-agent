@@ -24,6 +24,13 @@ from app.services.providers import embeddings
 
 @dataclass
 class RetrievedChunk:
+    """Generation-sized parent section with stable source/citation identity.
+
+    Dense and sparse retrieval rank embedded child passages, but callers receive
+    their parent section so an answer sees enough context without losing the page,
+    heading or source metadata needed to render a citation.
+    """
+
     chunk_id: str
     source_id: str
     source_title: str
@@ -41,6 +48,8 @@ class RetrievedChunk:
 
 @dataclass
 class RetrievalConfig:
+    """Independent stage switches used by production retrieval and RAG ablations."""
+
     use_dense: bool = True
     use_sparse: bool = True
     use_rerank: bool = True

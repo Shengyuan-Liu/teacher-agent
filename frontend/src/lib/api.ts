@@ -1,3 +1,11 @@
+/**
+ * Typed boundary for the REST API and the shared Agent SSE protocol.
+ *
+ * Stream event names and payloads are an application-level contract, not UI
+ * implementation details: Chat, Replay and other Agent surfaces all dispatch
+ * through this file so auth refresh and protocol handling cannot drift.
+ */
+
 import { useAuth } from './auth'
 import { SseParser } from './sse'
 
@@ -849,6 +857,8 @@ export function dispatchStreamEvent(
   data: string,
   handlers: DispatchHandlers,
 ): void {
+  // Unknown events are ignored for forward compatibility. Invalid JSON is not:
+  // it rejects the stream and exposes a server protocol violation to the caller.
   const payload = JSON.parse(data)
   if (event === 'stage') handlers.onStage(payload)
   else if (event === 'stage_result') handlers.onStageResult(payload)
@@ -905,6 +915,8 @@ export async function streamAnswer(
   intent?: ChatIntent,
   requestId?: string,
 ): Promise<void> {
+  // Keep requestId unchanged across auth retries. The backend uses it to replay
+  // a committed turn or resume the original durable DAG after disconnection.
   const open = () =>
     fetch(`${BASE_URL}/chat/sessions/${sessionId}/stream`, {
       method: 'POST',

@@ -13,6 +13,8 @@ from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class TaskExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Immutable DAG definition plus the coarse lease for one idempotent turn."""
+
     __tablename__ = "task_executions"
 
     execution_key: Mapped[uuid.UUID] = mapped_column(
@@ -51,6 +53,8 @@ class TaskExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class TaskNodeCheckpoint(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Latest materialized state of a node; one row exists per execution/node."""
+
     __tablename__ = "task_node_checkpoints"
     __table_args__ = (
         UniqueConstraint("execution_id", "task_id", name="uq_task_checkpoint_execution_node"),

@@ -54,6 +54,8 @@ async def execute_case(
 
 
 def summarize(results: list[EvalResult], thresholds: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate completed cases and apply absolute minimum-score gates."""
+
     metric_values: dict[str, list[float]] = {}
     for result in results:
         if result.status != "completed":
@@ -100,6 +102,8 @@ def compare_summaries(
     baseline: dict[str, Any] | None,
     thresholds: dict[str, Any],
 ) -> dict[str, Any]:
+    """Compare higher-is-better suite metrics with a compatible baseline run."""
+
     if not baseline:
         return {"baseline_run_id": None, "metrics": {}, "regressions": [], "gate_passed": True}
 
@@ -164,6 +168,8 @@ async def run_evaluation(db: AsyncSession, run_id: uuid.UUID) -> EvalRun:
         if run.variant:
             config["variant"] = run.variant
 
+        # A result row is a per-case checkpoint. Worker retries resume at the
+        # first missing case instead of repeating paid model calls.
         completed_case_ids = set(
             await db.scalars(select(EvalResult.case_id).where(EvalResult.run_id == run.id))
         )

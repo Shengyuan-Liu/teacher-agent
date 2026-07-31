@@ -111,6 +111,11 @@ function Answer({
   )
 }
 
+/**
+ * Shared conversation runtime for Chat and the first-class Lecture surface.
+ * Only one turn may stream at once, so all handlers can safely patch the final
+ * optimistic assistant message while history remains immutable.
+ */
 export default function Chat({ experience = 'chat' }: { experience?: 'chat' | 'lecture' }) {
   const { id: workspaceId, sid: sessionId } = useParams<{ id: string; sid: string }>()
   const location = useLocation()
@@ -180,9 +185,12 @@ export default function Chat({ experience = 'chat' }: { experience?: 'chat' | 'l
     bottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // The optimistic assistant placeholder is always last while streaming.
   const patchLast = (patch: (last: Msg) => Msg) =>
     setMessages((m) => [...m.slice(0, -1), patch(m[m.length - 1])])
 
+  // Historical lecture cards remain inspectable but only the newest checkpoint
+  // may emit control actions; otherwise stale buttons could mutate current state.
   const latestLectureArtifact = messages.reduce(
     (latest, message, index) => (message.artifact?.type === 'lecture' ? index : latest),
     -1,
@@ -203,6 +211,8 @@ export default function Chat({ experience = 'chat' }: { experience?: 'chat' | 'l
       { role: 'assistant', content: '', citations: null, trace: [], streaming: true },
     ])
 
+    // Citation metadata arrives separately from token deltas. Keep it outside
+    // React state until ``done`` confirms whether the final answer was grounded.
     let citations: Citation[] = []
     let webCitations: WebCitation[] = []
     let usedWeb = false
@@ -261,6 +271,8 @@ export default function Chat({ experience = 'chat' }: { experience?: 'chat' | 'l
         onArtifact: (artifact) => patchLast((last) => ({ ...last, artifact })),
         onUsage: (u) => patchLast((last) => ({ ...last, usage: u })),
         onDone: (payload) => {
+          // ``done`` is the application commit marker. A clean transport EOF
+          // without it is handled below as an interrupted turn.
           finished = true
           const grounded = Boolean(payload.grounded)
           patchLast((last) => ({

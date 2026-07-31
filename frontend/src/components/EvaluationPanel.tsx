@@ -112,6 +112,7 @@ function JsonImport({
   )
 }
 
+/** Evaluation control plane: versioned datasets, durable runs and baseline gates. */
 export default function EvaluationPanel({ workspaceId }: { workspaceId: string }) {
   const queryClient = useQueryClient()
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -143,6 +144,8 @@ export default function EvaluationPanel({ workspaceId }: { workspaceId: string }
   })
 
   const completedByVariant = useMemo(() => {
+    // A baseline is comparable only within the same dataset, strategy and
+    // execution mode; mixing deterministic and live runs would create fake deltas.
     const result = new Map<string, EvalRun>()
     for (const run of runs.data ?? []) {
       const mode = String(run.config.execution_mode ?? 'deterministic')
@@ -222,6 +225,8 @@ export default function EvaluationPanel({ workspaceId }: { workspaceId: string }
       executionMode: 'deterministic' | 'live'
     }) => {
       const stamp = new Date().toISOString()
+      // Launch the matrix from one dataset snapshot and timestamp so strategy
+      // differences are not confounded with edited cases or labels.
       return Promise.all(
         COORDINATION_VARIANTS.map((variant) => {
           const baseline = completedByVariant.get(

@@ -1,4 +1,11 @@
-"""Versioned prompt resolution, rendering and per-run usage capture."""
+"""Versioned prompt resolution, rendering and per-run usage capture.
+
+Code-owned prompts are the availability fallback; a workspace may activate one
+immutable override per key. Replay pins are stricter: key, source, version and
+content hash must all resolve or replay fails closed. Context variables isolate
+prompt usage and pins per async turn, while the short process cache avoids a
+database read on every model call.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +26,7 @@ from app.models.prompt import PromptDefinition, PromptVersion
 
 
 class PromptRegistryError(ValueError):
-    pass
+    """Prompt identity, contract, rendering or replay resolution is invalid."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,8 @@ class BuiltinPrompt:
 
 @dataclass(frozen=True)
 class ResolvedPrompt:
+    """Exact immutable prompt identity selected for one invocation."""
+
     key: str
     version: int
     description: str
@@ -74,6 +83,8 @@ class PromptUse:
 
 @dataclass
 class PromptTrace:
+    """Per-turn prompt manifest later attached to usage, Eval and AgentRun rows."""
+
     uses: list[PromptUse] = field(default_factory=list)
 
     def record(self, step: str, prompt: ResolvedPrompt) -> None:
@@ -248,6 +259,8 @@ async def resolve_prompt(
     builtin = get_builtin_prompt(key)
     pin = (_pins.get() or {}).get(key)
     if pin:
+        # Replay must never fall back to today's active prompt: that would create
+        # a plausible-looking run that did not reproduce the original behavior.
         source = pin.get("source")
         version = int(pin.get("version", 0))
         content_hash = str(pin.get("content_hash") or "")
@@ -278,6 +291,7 @@ async def resolve_prompt(
         return cached[1]
     resolved = await _workspace_version(workspace_id, key)
     result = resolved or _builtin_resolved(builtin)
+    # Activation clears this process immediately; other workers converge via TTL.
     _cache[cache_key] = (
         monotonic() + settings.prompt_cache_ttl_seconds,
         result,

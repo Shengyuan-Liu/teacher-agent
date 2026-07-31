@@ -1,4 +1,11 @@
-"""PostgreSQL-backed leases and node checkpoints for Typed Task DAGs."""
+"""PostgreSQL-backed leases and node checkpoints for Typed Task DAGs.
+
+``execution_key`` is stable across HTTP retries. The stored graph hash prevents a
+retry from silently adopting a different Router plan, while the coarse run lease
+prevents two workers from repeating the same provider calls. Node rows are the
+resume boundary: completed results are reused; an orphaned ``running`` row is
+made pending because its side effect cannot be proven complete.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +36,8 @@ def _definition(dag: TaskDAG) -> dict[str, Any]:
 
 
 def _definition_hash(payload: dict[str, Any]) -> str:
+    """Hash canonical graph semantics, independent of JSON key ordering."""
+
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -143,6 +152,8 @@ class PostgresTaskCheckpointStore:
                 attempts: dict[str, int] = {}
                 errors: dict[str, str] = {}
                 for checkpoint in checkpoints:
+                    # A crashed worker may leave ``running`` behind. Retrying is
+                    # safer than treating an uncommitted result as completed.
                     status: TaskStatus = (
                         "pending" if checkpoint.status == "running" else checkpoint.status
                     )  # type: ignore[assignment]
@@ -198,6 +209,8 @@ class PostgresTaskCheckpointStore:
             if status == "running" and checkpoint.started_at is None:
                 checkpoint.started_at = now
             if status == "completed":
+                # Provider/domain objects cannot be stored directly in JSONB.
+                # The same bounded representation is used by the call-chain trace.
                 checkpoint.result = trace_value(result)
                 checkpoint.completed_at = now
             elif status in ("failed", "blocked"):

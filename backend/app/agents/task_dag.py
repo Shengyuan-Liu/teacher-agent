@@ -1,3 +1,15 @@
+"""Provider-agnostic execution semantics for Router-produced task graphs.
+
+The graph is immutable once a turn starts: retries must execute the same node
+ids, dependencies and queries that were originally persisted. Nodes in one
+topological layer run concurrently, while each layer is a barrier for the next.
+Only completed dependency results cross that barrier through the blackboard;
+failed dependencies block downstream work instead of providing partial input.
+
+Persistence is injected through ``TaskCheckpointStore`` so this module remains
+usable in deterministic evaluations without PostgreSQL.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -68,6 +80,8 @@ def _slug(value: str) -> str:
 
 @dataclass(frozen=True)
 class TaskDAG:
+    """Normalized graph; ``build`` is the only place that adds implicit synthesis."""
+
     nodes: tuple[AgentTask, ...]
 
     @classmethod
@@ -274,6 +288,13 @@ class TaskDAG:
 
 @dataclass
 class TaskBlackboard:
+    """Materialized node state shared with handlers and durable checkpoints.
+
+    A handler should read only results named in its node's ``depends_on``. The
+    executor establishes that ordering; the blackboard intentionally stays a
+    simple mapping so it can be serialized and inspected without framework state.
+    """
+
     results: dict[str, Any] = field(default_factory=dict)
     statuses: dict[str, TaskStatus] = field(default_factory=dict)
     attempts: dict[str, int] = field(default_factory=dict)
@@ -287,6 +308,8 @@ class TaskBlackboard:
 
 @dataclass(frozen=True)
 class TaskEvent:
+    """Observable state transition emitted exactly once per executor transition."""
+
     type: TaskEventType
     node: AgentTask
     status: TaskStatus
@@ -329,7 +352,12 @@ class TaskCheckpointStore(Protocol):
 
 
 class TaskDAGExecutor:
-    """Execute each topological layer concurrently and propagate failures."""
+    """Execute each topological layer concurrently and propagate failures.
+
+    Node retries are local to a node. A failed node does not cancel independent
+    siblings in the same layer; their completed results remain reusable if the
+    durable execution is resumed later.
+    """
 
     def __init__(
         self,
@@ -449,6 +477,8 @@ class TaskDAGExecutor:
                         attempts=self.blackboard.attempts.get(node.id, 0),
                     )
 
+                # Treat the layer as a barrier. Waiting for every sibling preserves
+                # independent successes even when another branch exhausts retries.
                 outcomes = await asyncio.gather(*(self._run_node(node) for node in runnable))
                 for node, (succeeded, result, error, attempts) in zip(
                     runnable, outcomes, strict=True
@@ -494,5 +524,7 @@ class TaskDAGExecutor:
                 else "failed"
             )
         finally:
+            # Cancellation and process-level failures leave the execution resumable;
+            # completed/failed are used only after all graph transitions settle.
             if self.checkpoint_store is not None:
                 await self.checkpoint_store.finish(terminal_status)

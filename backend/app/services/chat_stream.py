@@ -1,3 +1,17 @@
+"""Application service for one chat turn and its server-sent event protocol.
+
+This is the integration boundary where security, routing, durable DAG execution,
+specialized learning flows, persistence, usage accounting and observability meet.
+Agent modules own domain reasoning; this module owns turn ordering and the client
+contract.
+
+Every visible step is emitted as ``stage`` followed by ``stage_result``. A stream
+is successful only after the assistant Message is committed and a terminal
+``done`` event is sent; EOF without ``done`` is an interruption. ``request_id`` is
+the durable turn identity, allowing a reconnect to replay a committed response or
+resume its original DAG without duplicating provider calls.
+"""
+
 import asyncio
 import inspect
 import json
@@ -1822,17 +1836,19 @@ async def _stream_answer_impl(
     intent_override: Intent | None = None,
     request_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Run the QA graph and yield SSE events: citations, token, done.
+    """Route and execute one turn, yielding the shared Chat SSE event vocabulary.
 
-    The intent router picks web vs local Q&A. force_web short-circuits it for the
-    explicit "search the web" suggestion click; otherwise the user's own wording
-    decides. Either way web only runs when the deployment enabled it, and never
-    as a silent fallback — an uncovered question declines and offers the button.
+    ``force_web`` represents the explicit search-suggestion click. Otherwise the
+    Router selects a specialized flow, but Web still requires both deployment
+    enablement and user consent. Uncovered local questions decline and offer the
+    button rather than silently escalating to external I/O.
     """
     duplicate = False
     resume_incomplete = False
     duplicate_reply: Message | None = None
     input_message_id: uuid.UUID | None = None
+    # The user Message is the durable idempotency record. Its following assistant
+    # Message means the turn committed; absence of one means resume, not replay.
     async with AsyncSessionLocal() as db:
         session = await db.get(ChatSession, session_id)
         existing_request = (
@@ -1962,6 +1978,8 @@ async def _stream_answer_impl(
         agent_name: str | None = None,
         tier: IntelligenceTier | None = None,
     ) -> dict:
+        # Resolve the model at start time. Budget state may change while a stage
+        # runs, so stage_result reuses this selection instead of recomputing history.
         resolved_agent = agent_name or agent
         payload = {"agent": resolved_agent, "stage": name, "label": label}
         if tier is not None:
@@ -1980,6 +1998,8 @@ async def _stream_answer_impl(
         agent_name: str | None = None,
         tier: IntelligenceTier | None = None,
     ) -> dict:
+        # ``trace`` stores the same JSON-safe result sent to the UI. Persisted
+        # history and live call-chain views therefore cannot disagree by shape.
         detail = trace_value(result)
         resolved_agent = agent_name or agent
         record = {
@@ -2514,7 +2534,12 @@ async def stream_answer(
     intent_override: Intent | None = None,
     request_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Observe the existing chat runtime without coupling product work to OTLP availability."""
+    """Wrap the turn with fail-open observability and guaranteed finalization.
+
+    Trace setup/persistence failures are logged but never prevent a learner from
+    receiving an answer. Cancellation is still re-raised after spans and the
+    durable AgentRun are closed with the correct terminal status.
+    """
     recorder = None
     try:
         recorder = await AgentTraceRecorder.create(

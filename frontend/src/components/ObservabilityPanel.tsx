@@ -12,6 +12,8 @@ function dollars(value: number | null | undefined): string {
 }
 
 function Waterfall({ run, spans }: { run: AgentRun; spans: AgentSpan[] }) {
+  // Bars use wall-clock offsets for concurrency; ordinal remains the stable
+  // display order when spans start within the same millisecond.
   const total = Math.max(run.latency_ms ?? 1, 1)
   return (
     <div className="span-waterfall">
@@ -54,6 +56,7 @@ function Waterfall({ run, spans }: { run: AgentRun; spans: AgentSpan[] }) {
   )
 }
 
+/** Durable trace browser and isolated replay launcher for one workspace. */
 export default function ObservabilityPanel({ workspaceId }: { workspaceId: string }) {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)

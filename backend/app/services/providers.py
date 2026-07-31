@@ -1,3 +1,12 @@
+"""Provider construction and the Fast/Smart model-routing enforcement point.
+
+Agents request an intelligence tier rather than a provider model. The transparent
+proxy reserves turn budget and checks the shared circuit breaker immediately
+before network I/O, which matters because model instances are cached and DAG
+nodes may invoke them concurrently. ``model_trace`` mirrors the same resolution
+logic for the UI without consuming budget.
+"""
+
 from collections.abc import AsyncIterator
 from enum import StrEnum
 from functools import lru_cache
@@ -124,6 +133,8 @@ class _GovernedChatModel:
         self._primary = _build_chat_model(requested_tier)
 
     def _selection(self) -> tuple[BaseChatModel, str]:
+        # Reserve here—not when the cached proxy is constructed—so every actual
+        # invocation observes the current turn ledger and concurrent reservations.
         selected = IntelligenceTier(
             reserve_model_call(
                 self.requested_tier.value,

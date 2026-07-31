@@ -14,6 +14,8 @@ import httpx
 
 
 def percentile(values: list[float], quantile: float) -> float:
+    """Linear interpolation keeps percentiles stable for small smoke profiles."""
+
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -37,6 +39,8 @@ async def run_load(
 
         async def request_once() -> tuple[int | str, float]:
             async with semaphore:
+                # Per-request latency excludes client-side semaphore queueing;
+                # wall-clock throughput below still includes the full queue.
                 started = perf_counter()
                 try:
                     response = await client.get(url)

@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 
 class PromptDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Workspace-owned stable prompt key whose content lives in versions."""
+
     __tablename__ = "prompt_definitions"
     __table_args__ = (
         UniqueConstraint("workspace_id", "key", name="uq_prompt_definition_workspace_key"),
@@ -54,6 +56,8 @@ class PromptDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class PromptVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Immutable prompt body; lifecycle changes status, never template content."""
+
     __tablename__ = "prompt_versions"
     __table_args__ = (
         UniqueConstraint("definition_id", "version", name="uq_prompt_version_number"),

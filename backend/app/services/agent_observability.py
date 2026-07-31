@@ -1,4 +1,11 @@
-"""Capture one streamed Agent turn as both OTel spans and durable database rows."""
+"""Capture one streamed Agent turn as both OTel spans and durable database rows.
+
+The recorder consumes the same ``stage``/``stage_result`` events sent to the UI,
+so the product call chain and stored waterfall share one source of truth. OTLP is
+optional telemetry; PostgreSQL rows support product queries and replay even when
+no collector is running. Recorder failures are handled fail-open by
+``chat_stream.stream_answer``.
+"""
 
 from __future__ import annotations
 
@@ -66,6 +73,8 @@ class RecordedSpan:
 
 
 class AgentTraceRecorder:
+    """Translate one SSE turn into a root run and ordered child spans."""
+
     def __init__(
         self,
         *,
@@ -264,6 +273,8 @@ class AgentTraceRecorder:
         otel_context.detach(token)
 
     def _new_usage(self) -> tuple[int, int, float | None]:
+        # Stage attribution follows completion-event order. Concurrent DAG spans
+        # can overlap, so the run-level usage total is authoritative for billing.
         ledger = usage.current()
         if ledger is None:
             return 0, 0, None
@@ -305,6 +316,8 @@ class AgentTraceRecorder:
             self.task_dag = result["dag"]
 
     def consume_event(self, event: dict[str, Any]) -> None:
+        """Advance trace state from the public SSE protocol, ignoring new event types."""
+
         try:
             payload = json.loads(event.get("data") or "{}")
         except (TypeError, json.JSONDecodeError):
@@ -338,6 +351,8 @@ class AgentTraceRecorder:
             return
         self.finished = True
         status = "cancelled" if cancelled else "error" if self.error else "completed"
+        # TCP EOF is not success: only ``done`` proves the assistant Message was
+        # committed and the client received the terminal application event.
         if not self.done_payload and status == "completed":
             status = "error"
             self.error = "Agent stream ended without a completion event"

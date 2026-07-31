@@ -22,6 +22,8 @@ from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class EvalDataset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Versioned golden-set definition; cases are immutable inputs to runs."""
+
     __tablename__ = "eval_datasets"
     __table_args__ = (
         UniqueConstraint("workspace_id", "name", "version", name="uq_eval_dataset_version"),
@@ -79,6 +81,8 @@ class EvalCase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class EvalRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Durable execution snapshot with optional like-for-like baseline comparison."""
+
     __tablename__ = "eval_runs"
 
     dataset_id: Mapped[uuid.UUID] = mapped_column(
@@ -118,6 +122,8 @@ class EvalRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class EvalResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Per-case checkpoint containing output, scores, usage and failure evidence."""
+
     __tablename__ = "eval_results"
     __table_args__ = (UniqueConstraint("run_id", "case_id", name="uq_eval_run_case"),)
 
