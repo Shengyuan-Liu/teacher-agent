@@ -1,0 +1,22 @@
+{
+  "target": "http://127.0.0.1:8010/api/v1/health/ready",
+  "requests": 500,
+  "concurrency": 50,
+  "successes": 500,
+  "availability": 1.0,
+  "throughput_requests_per_second": 1043.071,
+  "latency_ms": {
+    "mean": 46.846,
+    "p50": 26.159,
+    "p95": 235.247,
+    "max": 250.181
+  },
+  "statuses": {
+    "200": 500
+  },
+  "slo": {
+    "min_availability": 0.99,
+    "max_p95_ms": 500,
+    "passed": true
+  }
+}

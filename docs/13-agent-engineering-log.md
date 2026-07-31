@@ -551,13 +551,14 @@ P50/P95、bootstrap CI 或并发 fault profile。
 - 新增 200-turn、50-concurrency resilience profile，直接压实际 DAG/retry、预算
   reservation、cache single-flight 和 circuit half-open 状态机；
 - 新增通用 HTTP load probe；本地 readiness 500/500 成功，availability 100%，
-  P95 236.675ms，满足预设 99% / 500ms SLO；
+  P95 235.247ms，满足预设 99% / 500ms SLO；
 - CI 增加 3-repeat deterministic report 和 40-turn/20-concurrency resilience smoke。
 
 **验证**：
 
 - live pilot 48 个策略样本与 48 个 Judge，无 JSON repair；结果显示 single-agent 质量
-  最高，Typed DAG 只在相对 sequential/no-synthesis 的特定 trade-off 上获益；
+  最高，Typed DAG 仅相对 sequential 略高质量/较短关键路径，对 no-synthesis 没有质量
+  优势却显著增加延迟与成本；
 - resilience 600 个 DAG turns 覆盖 healthy、transient timeout 和 permanent timeout；
   预算 12/50 admission、50-request cache stampede 单次计算、50 次 open-circuit block
   和唯一 half-open probe 全部通过；

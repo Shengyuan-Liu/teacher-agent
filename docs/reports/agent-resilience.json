@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-31T08:40:27.798462+00:00",
+  "profile": {
+    "turns": 200,
+    "concurrency": 50,
+    "model_calls": false
+  },
+  "scenarios": {
+    "healthy": {
+      "turns": 200,
+      "concurrency": 50,
+      "completed": 200,
+      "blocked": 0,
+      "success_rate": 1.0,
+      "retry_attempts": 0,
+      "throughput_turns_per_second": 8016.835,
+      "latency_ms": {
+        "n": 200,
+        "mean": 5.307246,
+        "p50": 5.359979,
+        "p95": 6.501765,
+        "stdev": 0.757882,
+        "bootstrap_95_ci_low": 5.202852,
+        "bootstrap_95_ci_high": 5.411747
+      }
+    },
+    "transient_timeout": {
+      "turns": 200,
+      "concurrency": 50,
+      "completed": 200,
+      "blocked": 0,
+      "success_rate": 1.0,
+      "retry_attempts": 200,
+      "throughput_turns_per_second": 1695.788,
+      "latency_ms": {
+        "n": 200,
+        "mean": 27.906527,
+        "p50": 8.470459,
+        "p95": 91.881683,
+        "stdev": 30.867551,
+        "bootstrap_95_ci_low": 23.614484,
+        "bootstrap_95_ci_high": 32.234006
+      }
+    },
+    "permanent_timeout": {
+      "turns": 200,
+      "concurrency": 50,
+      "completed": 0,
+      "blocked": 200,
+      "success_rate": 0.0,
+      "retry_attempts": 200,
+      "throughput_turns_per_second": 2840.721,
+      "latency_ms": {
+        "n": 200,
+        "mean": 9.945613,
+        "p50": 5.535812,
+        "p95": 49.006609,
+        "stdev": 13.417308,
+        "bootstrap_95_ci_low": 8.159787,
+        "bootstrap_95_ci_high": 11.892478
+      }
+    },
+    "budget_contention": {
+      "requested": 50,
+      "admitted": 12,
+      "blocked": 38,
+      "limit": 12,
+      "oversubscribed": false,
+      "hard_stop": true
+    },
+    "cache_stampede": {
+      "requests": 50,
+      "computations": 1,
+      "coalesced": 49,
+      "single_flight_effective": true,
+      "consistent": true
+    },
+    "circuit_recovery": {
+      "blocked_while_open": 50,
+      "half_open_admitted": 1,
+      "half_open_blocked": 1,
+      "state_after_success": "closed"
+    }
+  },
+  "gates": {
+    "healthy_success_rate": true,
+    "transient_retry_recovery": true,
+    "permanent_failure_propagation": true,
+    "budget_no_oversubscription": true,
+    "cache_single_flight": true,
+    "circuit_half_open_exclusive": true
+  },
+  "passed": true,
+  "limitations": [
+    "This profile exercises real orchestration and governance code without model calls.",
+    "Run the separate HTTP load command against a deployed stack for network and database SLOs."
+  ]
+}

@@ -1,0 +1,2108 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-31T08:44:56.931741+00:00",
+  "execution_mode": "live",
+  "repeats_per_case": 3,
+  "cases": 4,
+  "samples": 48,
+  "git": {
+    "sha": "4f932a6e34ebaa9bcfbc3703167f8af6e2f65146",
+    "working_tree_dirty": false
+  },
+  "models": {
+    "fast": {
+      "provider": "openai",
+      "model": "gpt-5.6-luna",
+      "tier": "fast",
+      "reasoning_effort": "none"
+    },
+    "smart": {
+      "provider": "openai",
+      "model": "gpt-5.6-terra",
+      "tier": "smart",
+      "reasoning_effort": "medium"
+    },
+    "judge": {
+      "provider": "openai",
+      "model": "gpt-5.6-terra",
+      "tier": "smart",
+      "reasoning_effort": "medium"
+    }
+  },
+  "methodology": {
+    "variants": [
+      "single_agent",
+      "typed_dag",
+      "sequential_dag",
+      "no_synthesis"
+    ],
+    "bootstrap_samples": 2000,
+    "confidence": 0.95,
+    "seed": 20260731,
+    "quality_note": "Live mode calls configured providers and uses a versioned semantic judge; model and prompt drift remain factors."
+  },
+  "summary": {
+    "single_agent": {
+      "samples": 12,
+      "pass_rate": 0.75,
+      "metrics": {
+        "answer_quality": {
+          "n": 12,
+          "mean": 0.95,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.090453,
+          "bootstrap_95_ci_low": 0.9,
+          "bootstrap_95_ci_high": 1.0
+        },
+        "claim_recall": {
+          "n": 12,
+          "mean": 1.0,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.0,
+          "bootstrap_95_ci_low": 1.0,
+          "bootstrap_95_ci_high": 1.0
+        },
+        "citation_coverage": {
+          "n": 12,
+          "mean": 0.75,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.452267,
+          "bootstrap_95_ci_low": 0.5,
+          "bootstrap_95_ci_high": 1.0
+        },
+        "critical_path_ms": {
+          "n": 12,
+          "mean": 1520.333917,
+          "p50": 1506.137,
+          "p95": 1984.7497,
+          "stdev": 306.849174,
+          "bootstrap_95_ci_low": 1362.655667,
+          "bootstrap_95_ci_high": 1693.652981
+        },
+        "runner_latency_ms": {
+          "n": 12,
+          "mean": 3666.113667,
+          "p50": 3358.7875,
+          "p95": 5288.5716,
+          "stdev": 1028.723717,
+          "bootstrap_95_ci_low": 3253.201119,
+          "bootstrap_95_ci_high": 4277.55795
+        },
+        "tokens": {
+          "n": 12,
+          "mean": 160.916667,
+          "p50": 157.0,
+          "p95": 182.35,
+          "stdev": 17.57818,
+          "bootstrap_95_ci_low": 151.75,
+          "bootstrap_95_ci_high": 170.41875
+        },
+        "cost_units": {
+          "n": 12,
+          "mean": 0.001039,
+          "p50": 0.00083,
+          "p95": 0.001444,
+          "stdev": 0.000315,
+          "bootstrap_95_ci_low": 0.00088,
+          "bootstrap_95_ci_high": 0.001216
+        },
+        "agent_calls": {
+          "n": 12,
+          "mean": 1.0,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.0,
+          "bootstrap_95_ci_low": 1.0,
+          "bootstrap_95_ci_high": 1.0
+        }
+      }
+    },
+    "typed_dag": {
+      "samples": 12,
+      "pass_rate": 0.25,
+      "metrics": {
+        "answer_quality": {
+          "n": 12,
+          "mean": 0.804167,
+          "p50": 0.8,
+          "p95": 1.0,
+          "stdev": 0.153295,
+          "bootstrap_95_ci_low": 0.71624,
+          "bootstrap_95_ci_high": 0.884594
+        },
+        "claim_recall": {
+          "n": 12,
+          "mean": 0.879167,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.218942,
+          "bootstrap_95_ci_low": 0.754167,
+          "bootstrap_95_ci_high": 1.0
+        },
+        "citation_coverage": {
+          "n": 12,
+          "mean": 0.416667,
+          "p50": 0.5,
+          "p95": 1.0,
+          "stdev": 0.417424,
+          "bootstrap_95_ci_low": 0.208333,
+          "bootstrap_95_ci_high": 0.625
+        },
+        "critical_path_ms": {
+          "n": 12,
+          "mean": 4182.151833,
+          "p50": 3578.922,
+          "p95": 7644.52915,
+          "stdev": 2148.793491,
+          "bootstrap_95_ci_low": 3269.888446,
+          "bootstrap_95_ci_high": 5508.554354
+        },
+        "runner_latency_ms": {
+          "n": 12,
+          "mean": 6983.175167,
+          "p50": 6393.147,
+          "p95": 10779.11845,
+          "stdev": 2528.627671,
+          "bootstrap_95_ci_low": 5812.82375,
+          "bootstrap_95_ci_high": 8475.746758
+        },
+        "tokens": {
+          "n": 12,
+          "mean": 440.166667,
+          "p50": 424.0,
+          "p95": 551.15,
+          "stdev": 82.65573,
+          "bootstrap_95_ci_low": 397.995833,
+          "bootstrap_95_ci_high": 481.672917
+        },
+        "cost_units": {
+          "n": 12,
+          "mean": 0.002306,
+          "p50": 0.00223,
+          "p95": 0.003847,
+          "stdev": 0.001094,
+          "bootstrap_95_ci_low": 0.001745,
+          "bootstrap_95_ci_high": 0.002883
+        },
+        "agent_calls": {
+          "n": 12,
+          "mean": 3.0,
+          "p50": 3.0,
+          "p95": 3.0,
+          "stdev": 0.0,
+          "bootstrap_95_ci_low": 3.0,
+          "bootstrap_95_ci_high": 3.0
+        }
+      }
+    },
+    "sequential_dag": {
+      "samples": 12,
+      "pass_rate": 0.416667,
+      "metrics": {
+        "answer_quality": {
+          "n": 12,
+          "mean": 0.787083,
+          "p50": 0.8,
+          "p95": 0.945,
+          "stdev": 0.1494,
+          "bootstrap_95_ci_low": 0.71,
+          "bootstrap_95_ci_high": 0.8625
+        },
+        "claim_recall": {
+          "n": 12,
+          "mean": 0.870833,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.205004,
+          "bootstrap_95_ci_low": 0.758333,
+          "bootstrap_95_ci_high": 0.966667
+        },
+        "citation_coverage": {
+          "n": 12,
+          "mean": 0.333333,
+          "p50": 0.5,
+          "p95": 0.725,
+          "stdev": 0.325669,
+          "bootstrap_95_ci_low": 0.166667,
+          "bootstrap_95_ci_high": 0.5
+        },
+        "critical_path_ms": {
+          "n": 12,
+          "mean": 4730.614667,
+          "p50": 4340.991,
+          "p95": 6830.7774,
+          "stdev": 1378.345267,
+          "bootstrap_95_ci_low": 4043.996325,
+          "bootstrap_95_ci_high": 5523.431235
+        },
+        "runner_latency_ms": {
+          "n": 12,
+          "mean": 7122.300417,
+          "p50": 6526.933,
+          "p95": 9909.072,
+          "stdev": 1796.710937,
+          "bootstrap_95_ci_low": 6200.721096,
+          "bootstrap_95_ci_high": 8106.330371
+        },
+        "tokens": {
+          "n": 12,
+          "mean": 432.25,
+          "p50": 416.0,
+          "p95": 532.0,
+          "stdev": 59.525587,
+          "bootstrap_95_ci_low": 402.74375,
+          "bootstrap_95_ci_high": 464.66875
+        },
+        "cost_units": {
+          "n": 12,
+          "mean": 0.002182,
+          "p50": 0.001968,
+          "p95": 0.003755,
+          "stdev": 0.000896,
+          "bootstrap_95_ci_low": 0.001724,
+          "bootstrap_95_ci_high": 0.002686
+        },
+        "agent_calls": {
+          "n": 12,
+          "mean": 3.0,
+          "p50": 3.0,
+          "p95": 3.0,
+          "stdev": 0.0,
+          "bootstrap_95_ci_low": 3.0,
+          "bootstrap_95_ci_high": 3.0
+        }
+      }
+    },
+    "no_synthesis": {
+      "samples": 12,
+      "pass_rate": 0.5,
+      "metrics": {
+        "answer_quality": {
+          "n": 12,
+          "mean": 0.805833,
+          "p50": 0.8325,
+          "p95": 1.0,
+          "stdev": 0.147337,
+          "bootstrap_95_ci_low": 0.724979,
+          "bootstrap_95_ci_high": 0.879188
+        },
+        "claim_recall": {
+          "n": 12,
+          "mean": 0.958333,
+          "p50": 1.0,
+          "p95": 1.0,
+          "stdev": 0.097312,
+          "bootstrap_95_ci_low": 0.895833,
+          "bootstrap_95_ci_high": 1.0
+        },
+        "citation_coverage": {
+          "n": 12,
+          "mean": 0.458333,
+          "p50": 0.5,
+          "p95": 1.0,
+          "stdev": 0.334279,
+          "bootstrap_95_ci_low": 0.291667,
+          "bootstrap_95_ci_high": 0.625
+        },
+        "critical_path_ms": {
+          "n": 12,
+          "mean": 1309.214667,
+          "p50": 1220.2395,
+          "p95": 1785.9715,
+          "stdev": 299.763134,
+          "bootstrap_95_ci_low": 1152.890321,
+          "bootstrap_95_ci_high": 1479.157575
+        },
+        "runner_latency_ms": {
+          "n": 12,
+          "mean": 4143.490083,
+          "p50": 4095.239,
+          "p95": 5398.0584,
+          "stdev": 946.685903,
+          "bootstrap_95_ci_low": 3677.355292,
+          "bootstrap_95_ci_high": 4667.643617
+        },
+        "tokens": {
+          "n": 12,
+          "mean": 219.75,
+          "p50": 214.5,
+          "p95": 252.45,
+          "stdev": 21.080474,
+          "bootstrap_95_ci_low": 208.75,
+          "bootstrap_95_ci_high": 230.835417
+        },
+        "cost_units": {
+          "n": 12,
+          "mean": 0.000461,
+          "p50": 0.000469,
+          "p95": 0.00052,
+          "stdev": 5.7e-05,
+          "bootstrap_95_ci_low": 0.000427,
+          "bootstrap_95_ci_high": 0.000488
+        },
+        "agent_calls": {
+          "n": 12,
+          "mean": 2.0,
+          "p50": 2.0,
+          "p95": 2.0,
+          "stdev": 0.0,
+          "bootstrap_95_ci_low": 2.0,
+          "bootstrap_95_ci_high": 2.0
+        }
+      }
+    }
+  },
+  "typed_dag_deltas": {
+    "single_agent": {
+      "answer_quality": -0.145833,
+      "critical_path_ms": 2661.817916,
+      "tokens": 279.25,
+      "cost_units": 0.001267
+    },
+    "sequential_dag": {
+      "answer_quality": 0.017084,
+      "critical_path_ms": -548.462834,
+      "tokens": 7.916667,
+      "cost_units": 0.000124
+    },
+    "no_synthesis": {
+      "answer_quality": -0.001666,
+      "critical_path_ms": 2872.937166,
+      "tokens": 220.416667,
+      "cost_units": 0.001845
+    }
+  },
+  "rows": [
+    {
+      "variant": "single_agent",
+      "repeat": 1,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 2014.871,
+      "runner_latency_ms": 4084.845,
+      "tokens": 157,
+      "cost_units": 0.000742,
+      "agent_calls": 1,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested order and form a coherent response. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 1,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1716.192,
+      "runner_latency_ms": 3488.121,
+      "tokens": 172,
+      "cost_units": 0.001267,
+      "agent_calls": 1,
+      "answer": "The method was introduced in the nineteenth century. [W2]\n\nThe material derives the approximation from rare events. [L2]",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated, each has the required citation marker attached, the requested history-then-material order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 1,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1285.79,
+      "runner_latency_ms": 3229.454,
+      "tokens": 142,
+      "cost_units": 0.00083,
+      "agent_calls": 1,
+      "answer": "A Poisson process is publicly defined as counting independent events over time [W3]. The textbook condition adds that these events must occur at a constant event rate [L3].",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated in the requested order. Each relevant claim has its required citation marker ([W3] and [L3]), and the response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 1,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1960.105,
+      "runner_latency_ms": 3600.938,
+      "tokens": 178,
+      "cost_units": 0.001395,
+      "agent_calls": 1,
+      "answer": "The web source supports discussion of the scientist’s biography. [W4]  \nThe local source supports only discussion of the convergence theorem. [L4]",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated, each has the required citation marker attached, the requested order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 2,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 1228.149,
+      "runner_latency_ms": 3787.76,
+      "tokens": 157,
+      "cost_units": 0.000742,
+      "agent_calls": 1,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated clearly and in the requested order, forming a coherent response. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 2,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1842.796,
+      "runner_latency_ms": 3174.113,
+      "tokens": 184,
+      "cost_units": 0.001448,
+      "agent_calls": 1,
+      "answer": "The method was introduced in the nineteenth century. [W2]\n\nThe material derives the approximation from rare events. [L2]",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated, each has the required citation marker attached, the requested history-then-material order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 2,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1257.238,
+      "runner_latency_ms": 2970.58,
+      "tokens": 142,
+      "cost_units": 0.00083,
+      "agent_calls": 1,
+      "answer": "A Poisson process is publicly described as counting independent events over time [W3]. The textbook condition adds that these events must occur at a constant event rate [L3].",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated in the requested order. Each relevant claim has its required citation marker ([W3] and [L3]), and the two sentences form a coherent connection between the public definition and textbook condition."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 2,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1126.026,
+      "runner_latency_ms": 6759.793,
+      "tokens": 138,
+      "cost_units": 0.000795,
+      "agent_calls": 1,
+      "answer": "- [W4] supports that the web source discusses the scientist’s biography.  \n- [L4] supports that the local source discusses only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated, each has the required matching citation marker, the requested order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 3,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 1227.996,
+      "runner_latency_ms": 3069.313,
+      "tokens": 157,
+      "cost_units": 0.000742,
+      "agent_calls": 1,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated in the requested order, and the response is coherent. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 3,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1535.621,
+      "runner_latency_ms": 3539.46,
+      "tokens": 181,
+      "cost_units": 0.001403,
+      "agent_calls": 1,
+      "answer": "The method was introduced in the nineteenth century. [W2]\n\nThe material derives the approximation from rare events. [L2]",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested history-then-material order. Each claim has its required citation marker attached: [W2] for the historical claim and [L2] for the derivation claim. The response is coherent."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 3,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1476.653,
+      "runner_latency_ms": 3219.299,
+      "tokens": 142,
+      "cost_units": 0.00083,
+      "agent_calls": 1,
+      "answer": "A Poisson process is publicly defined as counting independent events over time [W3]. The textbook’s additional condition is that these events occur at a constant rate [L3].",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated in the requested order. Each relevant claim has the required citation marker ([W3] for the public definition and [L3] for the textbook condition). The response is coherent and connects the two conditions."
+      }
+    },
+    {
+      "variant": "single_agent",
+      "repeat": 3,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1572.57,
+      "runner_latency_ms": 3069.688,
+      "tokens": 181,
+      "cost_units": 0.00144,
+      "agent_calls": 1,
+      "answer": "- [W4] [WEB] supports that the web source discusses the scientist’s biography.  \n- [L4] [LOCAL] supports that the local source discusses only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated, each has the required matching citation marker, the requested order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 1,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 2632.641,
+      "runner_latency_ms": 4611.458,
+      "tokens": 401,
+      "cost_units": 0.001244,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook result associated with him is the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested order, and the response is coherent. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 1,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 4604.465,
+      "runner_latency_ms": 6890.748,
+      "tokens": 535,
+      "cost_units": 0.003575,
+      "agent_calls": 3,
+      "answer": "**History:** The method was introduced in the nineteenth century. [W2] [WEB]\n\n**Material:** One piece of evidence states that no material information is provided, while another describes the method’s basis: its approximation derives from, and uses, rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The history claim is stated and includes [W2]. The material claim states that the approximation derives from rare events, but it lacks the required [L2] citation marker. The requested history-then-material order is preserved, and the response is coherent."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 1,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.635,
+      "claim_recall": 0.5,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 3847.174,
+      "runner_latency_ms": 8062.76,
+      "tokens": 447,
+      "cost_units": 0.002575,
+      "agent_calls": 3,
+      "answer": "A Poisson process is publicly defined as counting independent events over time, which matches the textbook condition that event occurrences are independent. [W3] [WEB] The supplied evidence does not establish the additional textbook condition of a constant event rate.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.0
+        ],
+        "reason": "The answer correctly states that a Poisson process counts independent events over time and attaches [W3]. It does not state the required textbook condition that the event rate is constant; instead it says the evidence does not establish it, and [L3] is absent. The discussion follows the requested claim sequence and is coherent."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 1,
+      "case": "conflicting-source-scopes",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 2655.604,
+      "runner_latency_ms": 5114.533,
+      "tokens": 328,
+      "cost_units": 0.001086,
+      "agent_calls": 3,
+      "answer": "- [WEB] supports only that the web source discusses the scientist’s biography.  \n- [LOCAL] supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order: the web source is said to discuss the scientist's biography, and the local source only the convergence theorem. However, the required citation markers [W4] and [L4] are absent; [WEB] and [LOCAL] do not satisfy the specified markers."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 2,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3786.139,
+      "runner_latency_ms": 5735.334,
+      "tokens": 401,
+      "cost_units": 0.001244,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook result associated with him is the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated accurately and in the requested order, and the response is coherent. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 2,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.895,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 4503.81,
+      "runner_latency_ms": 8208.984,
+      "tokens": 555,
+      "cost_units": 0.003595,
+      "agent_calls": 3,
+      "answer": "History: The method was introduced in the nineteenth century. [W2] [WEB] The approximation is also described as having been derived from rare events. [L2] [LOCAL]\n\nMaterial: The evidence conflicts: one source provides no material information, while another states that the material derives the approximation from rare events. [L2] [LOCAL]",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated and have their required markers: the nineteenth-century history claim has [W2], and the rare-events derivation claim has [L2]. However, the rare-events/material claim is introduced in the History section before the requested Material section, weakening the requested ordering. The response is mostly coherent, though calling absence of information a conflict is imprecise."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 2,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.475,
+      "claim_recall": 0.5,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3156.296,
+      "runner_latency_ms": 6846.137,
+      "tokens": 375,
+      "cost_units": 0.001624,
+      "agent_calls": 3,
+      "answer": "A Poisson process is publicly defined as counting independent events over time at a constant event rate. This matches the textbook condition that event occurrences are independent.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.0
+        ],
+        "reason": "The answer entails the public definition that a Poisson process counts independent events over time, but it does not state that the textbook requires a constant event rate; instead, it incorrectly attributes independence to the textbook condition. Neither required citation marker ([W3] or [L3]) is present. The response is coherent, but only the first requested claim is correctly addressed in order."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 2,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 2863.592,
+      "runner_latency_ms": 5218.307,
+      "tokens": 324,
+      "cost_units": 0.00109,
+      "agent_calls": 3,
+      "answer": "- [W4] supports only that the web source discusses the scientist’s biography.  \n- [L4] supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order. Each claim has its required citation marker ([W4] and [L4]), and the two bullets form a coherent response."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 3,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3371.705,
+      "runner_latency_ms": 5940.157,
+      "tokens": 493,
+      "cost_units": 0.002666,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook result associated with him is the Poisson limit theorem; this resolves the conflicting evidence, since one source did not identify a result while another specifically names the Poisson limit theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested order: Poisson is identified as a French mathematician, followed by the textbook association with the Poisson limit theorem. However, neither required citation marker ([W1] or [L1]) is included. The response is coherent, though it adds irrelevant discussion of conflicting evidence."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 3,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.885,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 10443.835,
+      "runner_latency_ms": 13869.074,
+      "tokens": 488,
+      "cost_units": 0.002935,
+      "agent_calls": 3,
+      "answer": "**History:** The method was introduced in the nineteenth century.[W2] [WEB] However, the evidence provides no history specifically for the material.\n\n**Material:** No information is provided about the material’s composition or identity. The available evidence only states that it derives its approximation from rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer states that the method was introduced in the nineteenth century and attaches [W2]. It also states that the approximation derives from rare events, but this material claim lacks the required [L2] citation. The history section precedes the material section, and the response is generally coherent despite unnecessary caveats and the extra [WEB] marker."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 3,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.66,
+      "claim_recall": 0.55,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 5354.188,
+      "runner_latency_ms": 8250.973,
+      "tokens": 548,
+      "cost_units": 0.004155,
+      "agent_calls": 3,
+      "answer": "The public definition’s emphasis on independent events corresponds to the textbook condition of independent event occurrences. [W3] The supplied evidence does not support equating the public definition specifically with a constant event rate; constant rate is a separate Poisson-process condition.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          0.8,
+          0.3
+        ],
+        "reason": "The answer connects the public definition to independent event occurrences and attaches [W3], though it does not explicitly state that events are counted over time. It mentions constant rate as a separate Poisson-process condition, but does not clearly say that the textbook requires it and omits the required [L3] citation. The claims appear in the requested order and form a coherent response."
+      }
+    },
+    {
+      "variant": "typed_dag",
+      "repeat": 3,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 2966.373,
+      "runner_latency_ms": 5049.637,
+      "tokens": 387,
+      "cost_units": 0.001885,
+      "agent_calls": 3,
+      "answer": "- **[W4] [WEB]:** Supports only that the web source discusses the scientist’s biography.  \n- **[L4] [LOCAL]:** Supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The response states that the web source discusses the scientist's biography and that the local source supports only the convergence theorem, in the requested order. Each claim has its required citation marker ([W4] and [L4]), and the response is coherent."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 1,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3513.809,
+      "runner_latency_ms": 5118.507,
+      "tokens": 409,
+      "cost_units": 0.001234,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the Poisson limit theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested order, and the response is coherent. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 1,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 4267.522,
+      "runner_latency_ms": 6520.636,
+      "tokens": 449,
+      "cost_units": 0.00235,
+      "agent_calls": 3,
+      "answer": "**History:** The method was introduced in the nineteenth century. [W2] [WEB]\n\n**Material:** It derives the approximation from rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested history-then-material order. The history claim includes required marker [W2], while the material claim lacks required marker [L2]. The response is coherent."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 1,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.475,
+      "claim_recall": 0.5,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 5015.503,
+      "runner_latency_ms": 7986.649,
+      "tokens": 441,
+      "cost_units": 0.002549,
+      "agent_calls": 3,
+      "answer": "A Poisson process is publicly defined as counting independent events over time, which matches the textbook condition that events occur independently over time. The public definition also requires a constant event rate.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.0
+        ],
+        "reason": "The answer correctly states that a Poisson process counts independent events over time, but it does not state that the textbook requires a constant event rate; instead, it attributes that requirement to the public definition. Neither required citation marker, [W3] or [L3], is included. The response is coherent, but the second requested claim is not presented in the required form or attribution."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 1,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 4402.353,
+      "runner_latency_ms": 6262.422,
+      "tokens": 374,
+      "cost_units": 0.001776,
+      "agent_calls": 3,
+      "answer": "- [W4] [WEB] supports only that the web source discusses the scientist’s biography.  \n- [L4] [LOCAL] supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer states that the web source supports the scientist's biography and that the local source supports only the convergence theorem, in the required order. Each claim has its required citation marker, and the response is coherent."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 2,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3157.107,
+      "runner_latency_ms": 5206.077,
+      "tokens": 415,
+      "cost_units": 0.001282,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are directly stated in the requested order, and the response is coherent. However, neither required citation marker ([W1] or [L1]) is included."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 2,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.65,
+      "claim_recall": 0.65,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 5491.295,
+      "runner_latency_ms": 8849.238,
+      "tokens": 543,
+      "cost_units": 0.003803,
+      "agent_calls": 3,
+      "answer": "**History:** The method was introduced in the nineteenth century. [W2] [WEB] The evidence also characterizes the approximation as having been derived from rare events.\n\n**Material:** No physical or other material is identified. Although the approximation is said to be based on rare events, that describes its basis rather than specifying a material.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.3
+        ],
+        "reason": "The history claim is stated directly and includes [W2]. The rare-events derivation is mentioned, but it is not attributed to the material, lacks required [L2], and the Material section partially contradicts the expected claim by denying identified material. The claims appear in the requested history-then-material sequence, but the response is weakened by this inconsistency."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 2,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.67,
+      "claim_recall": 0.8,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 5895.933,
+      "runner_latency_ms": 9789.426,
+      "tokens": 523,
+      "cost_units": 0.003715,
+      "agent_calls": 3,
+      "answer": "The evidence gives two different connections: one identifies the textbook condition as independence of events across time intervals, while the other identifies it as a constant event rate. Thus, based on the supplied evidence alone, the public definition cannot be matched uniquely to just one textbook condition; it may be understood as involving both independence across intervals and a constant rate.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          0.6,
+          1.0
+        ],
+        "reason": "The answer conveys independence across time intervals before stating the constant event rate, so the requested claim order is preserved. It supports the constant-rate condition directly, but only partially expresses the public definition because it does not explicitly say that a Poisson process counts independent events over time. Neither required citation marker, [W3] or [L3], is included. The response is coherent but adds an unnecessary ambiguity qualification."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 2,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 6041.229,
+      "runner_latency_ms": 8121.475,
+      "tokens": 354,
+      "cost_units": 0.00154,
+      "agent_calls": 3,
+      "answer": "- [W4] [WEB] supports only that the web source discusses the scientist’s biography.\n- The local source supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order and form a coherent response. [W4] is attached to the web-source claim, but the local-source claim lacks the required [L4] citation marker."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 3,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.8,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 3344.43,
+      "runner_latency_ms": 4901.395,
+      "tokens": 417,
+      "cost_units": 0.00129,
+      "agent_calls": 3,
+      "answer": "Siméon Denis Poisson was a French mathematician. The textbook associates him with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated accurately and in the requested order. However, neither required citation marker ([W1] or [L1]) is included. The response is coherent."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 3,
+      "case": "ordered-biography-then-material",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 4279.629,
+      "runner_latency_ms": 6533.23,
+      "tokens": 483,
+      "cost_units": 0.002795,
+      "agent_calls": 3,
+      "answer": "**History:** The method was introduced in the nineteenth century. [W2] [WEB] The evidence does not provide a history specifically for the material.\n\n**Material:** It derives the approximation from rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested history-then-material order. The history claim includes required marker [W2], while the material claim lacks required marker [L2]. The response is coherent; the extra [WEB] marker and unsupported note do not prevent entailment."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 3,
+      "case": "cross-source-composition",
+      "passed": false,
+      "answer_quality": 0.65,
+      "claim_recall": 0.5,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 7795.781,
+      "runner_latency_ms": 10055.306,
+      "tokens": 415,
+      "cost_units": 0.002159,
+      "agent_calls": 3,
+      "answer": "The public definition connects to the textbook condition through independent event occurrences: a Poisson process counts independent events over time. [W3] The supplied evidence does not support the additional claim that the event rate remains constant.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.0
+        ],
+        "reason": "The answer correctly states the first expected claim and attaches [W3]. It does not state the required textbook condition that the event rate is constant; instead it says the evidence does not support that claim, and [L3] is missing. The claims it does make are coherent and preserve the first requested position."
+      }
+    },
+    {
+      "variant": "sequential_dag",
+      "repeat": 3,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 3562.785,
+      "runner_latency_ms": 6123.244,
+      "tokens": 364,
+      "cost_units": 0.00169,
+      "agent_calls": 3,
+      "answer": "[W4] [WEB] supports only that the web source discusses the scientist’s biography.\n\nThe local source supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order. [W4] is attached to the web-source claim, but the local-source claim lacks the required [L4] marker. The response is coherent."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 1,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.695,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 1433.847,
+      "runner_latency_ms": 4401.632,
+      "tokens": 253,
+      "cost_units": 0.000523,
+      "agent_calls": 2,
+      "answer": "Siméon Denis Poisson was a French mathematician. The provided evidence does not identify any textbook result associated with him.\n\nSiméon Denis Poisson was a French mathematician. The textbook associates him with the Poisson limit theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the correct order in the final two sentences. However, no required citation markers ([W1], [L1]) are present, and the earlier statement that no associated textbook result is identified directly contradicts the later Poisson limit theorem claim, making the response repetitive and internally inconsistent."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 1,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.595,
+      "claim_recall": 0.75,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1231.452,
+      "runner_latency_ms": 5737.019,
+      "tokens": 215,
+      "cost_units": 0.000465,
+      "agent_calls": 2,
+      "answer": "History: The method was introduced in the nineteenth century.[W2]\n\nMaterial: No information about the material is provided.\n\nHistory: The approximation is derived from rare events. \n\nMaterial: No further material details are provided.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.5
+        ],
+        "reason": "The nineteenth-century introduction claim is correctly stated and has [W2]. The rare-events derivation is stated, but it is incorrectly placed under History rather than Material, is preceded by a denial that material information is available, and lacks required marker [L2]. The claim sequence is nominally history then derivation, but the response repeats and mislabels sections, reducing order compliance and coherence."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 1,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1186.982,
+      "runner_latency_ms": 3479.899,
+      "tokens": 211,
+      "cost_units": 0.000451,
+      "agent_calls": 2,
+      "answer": "A Poisson process counts independent events over time, connecting the public definition to the textbook condition of independent event occurrences. [W3]\n\nThe public definition connects to the textbook condition by requiring a constant event rate.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order. [W3] is attached to the independent-events claim, but the constant-rate claim lacks the required [L3] citation marker. The response is coherent."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 1,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1962.373,
+      "runner_latency_ms": 3788.846,
+      "tokens": 189,
+      "cost_units": 0.000339,
+      "agent_calls": 2,
+      "answer": "[W4] [WEB] supports information about the scientist’s biography.\n\nThe local source supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated in the requested order. [W4] is attached to the web/biography claim, but the local/convergence-theorem claim lacks the required [L4] marker."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 2,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.57,
+      "claim_recall": 0.75,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 923.308,
+      "runner_latency_ms": 5120.727,
+      "tokens": 247,
+      "cost_units": 0.000487,
+      "agent_calls": 2,
+      "answer": "Siméon Denis Poisson was a French mathematician. The provided evidence does not identify any textbook result associated with him.\n\nSiméon Denis Poisson was associated with the **Poisson limit theorem**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          0.5
+        ],
+        "reason": "The answer correctly identifies Poisson as a French mathematician. It later names the Poisson limit theorem, but does not explicitly state that the textbook associates it with him and contradicts itself by first saying no textbook result is identified. Neither required citation marker ([W1] or [L1]) is present. The claims appear in the requested sequence, but the response is internally inconsistent."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 2,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.765,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1641.643,
+      "runner_latency_ms": 4793.059,
+      "tokens": 222,
+      "cost_units": 0.000507,
+      "agent_calls": 2,
+      "answer": "History: The method was introduced in the nineteenth century. [W2] [WEB]\n\nMaterial: No information about the material is provided.\n\nHistory: The material’s history is not provided in the evidence.\n\nMaterial: It derives the approximation from rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are stated, and the nineteenth-century claim has the required [W2] marker. The rare-events claim lacks required [L2]. The expected claims appear in the requested history-then-material order, but intervening contradictory/irrelevant statements and repeated section labels reduce ordering clarity and overall coherence."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 2,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 0.9,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1086.242,
+      "runner_latency_ms": 3619.628,
+      "tokens": 214,
+      "cost_units": 0.000469,
+      "agent_calls": 2,
+      "answer": "A Poisson process counts independent events over time, matching the textbook condition of independent events occurring over time. [W3] [WEB]\n\nThe public definition connects to the textbook condition by requiring a **constant event rate**.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer states both expected claims in the requested order and is coherent. The first claim is supported with the required [W3] marker. The second constant-rate claim is present but lacks the required [L3] marker."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 2,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 1152.272,
+      "runner_latency_ms": 2645.852,
+      "tokens": 202,
+      "cost_units": 0.000417,
+      "agent_calls": 2,
+      "answer": "- [W4] [WEB] supports only that the web source discusses the scientist’s biography.\n\n[L4] [LOCAL] supports only that the local source discusses the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer states both expected claims in the requested order. Each claim has its required citation marker attached: [W4] for the web-source biography claim and [L4] for the local-source convergence-theorem-only claim. The response is coherent."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 3,
+      "case": "web-identity-local-theorem",
+      "passed": false,
+      "answer_quality": 0.68,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.0,
+      "critical_path_ms": 1431.587,
+      "runner_latency_ms": 4542.71,
+      "tokens": 252,
+      "cost_units": 0.000517,
+      "agent_calls": 2,
+      "answer": "Siméon Denis Poisson was a French mathematician. The evidence does not identify any textbook result associated with him.\n\nSiméon Denis Poisson was a French mathematician. The textbook associates him with the Poisson limit theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "Both expected claims are explicitly stated in the requested order in the second paragraph, but neither required citation marker ([W1], [L1]) is present. The response is internally contradictory because it first says no associated textbook result is identified, then identifies the Poisson limit theorem."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 3,
+      "case": "ordered-biography-then-material",
+      "passed": false,
+      "answer_quality": 0.78,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1502.175,
+      "runner_latency_ms": 5067.965,
+      "tokens": 222,
+      "cost_units": 0.000507,
+      "agent_calls": 2,
+      "answer": "History: The method was introduced in the nineteenth century. [W2] [WEB]\n\nMaterial: No information about the material is provided.\n\nHistory: The material’s history is not provided in the evidence.\n\nMaterial: It derives the approximation from rare events.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The nineteenth-century introduction claim is stated and includes [W2]. The rare-events derivation claim is also stated, but it lacks the required [L2] citation. The two expected claims appear in the requested history-then-material order, though the response adds confusing and contradictory intervening statements, including saying no material information is provided before giving the material claim."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 3,
+      "case": "cross-source-composition",
+      "passed": true,
+      "answer_quality": 0.885,
+      "claim_recall": 1.0,
+      "citation_coverage": 0.5,
+      "critical_path_ms": 1209.027,
+      "runner_latency_ms": 3597.574,
+      "tokens": 214,
+      "cost_units": 0.000469,
+      "agent_calls": 2,
+      "answer": "A Poisson process counts independent events over time, connecting the public definition to the textbook condition of independent event occurrences. [W3] [WEB]\n\nThe public definition connects to the textbook condition by requiring a constant event rate.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer entails both expected claims in the requested order: it states that a Poisson process counts independent events over time and that the textbook condition requires a constant event rate. [W3] is attached to the first claim, but the required [L3] marker is missing from the constant-rate claim. The response is generally coherent, though somewhat repetitive."
+      }
+    },
+    {
+      "variant": "no_synthesis",
+      "repeat": 3,
+      "case": "conflicting-source-scopes",
+      "passed": true,
+      "answer_quality": 1.0,
+      "claim_recall": 1.0,
+      "citation_coverage": 1.0,
+      "critical_path_ms": 949.668,
+      "runner_latency_ms": 2926.97,
+      "tokens": 196,
+      "cost_units": 0.000381,
+      "agent_calls": 2,
+      "answer": "[W4] [WEB] supports only that the web source discusses the scientist’s biography.\n\n[L4] [LOCAL] supports only the convergence theorem.",
+      "judge": {
+        "model": {
+          "provider": "openai",
+          "model": "gpt-5.6-terra",
+          "tier": "smart",
+          "reasoning_effort": "medium"
+        },
+        "prompt": {
+          "key": "benchmark.judge",
+          "version": 1,
+          "content_hash": "b38c399ae8cdc0a383aa7a6833fa74d796df68f2cbecc6cca538c304227fe42e",
+          "source": "builtin"
+        },
+        "recovered": false,
+        "recovery_method": null,
+        "claim_scores": [
+          1.0,
+          1.0
+        ],
+        "reason": "The answer states that the web source supports discussion of the scientist's biography and that the local source supports only the convergence theorem, in the required order. Each claim has its required citation marker ([W4] and [L4]), and the response is coherent."
+      }
+    }
+  ]
+}

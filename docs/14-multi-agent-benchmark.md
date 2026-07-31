@@ -121,10 +121,11 @@ effort、Dataset version 和 Git SHA，每个策略至少重复 30 次，并报�
   Git SHA、固定 bootstrap seed 和 95% CI。
 
 本次 live pilot 没有支持“多 Agent 全面优于单 Agent”：`single_agent` 平均质量最高；
-`typed_dag` 相比 `sequential_dag` 平均质量略高且关键路径更短，相比
-`no_synthesis` 质量更高但延迟和成本也更高。这说明 decomposition 应由任务复杂度与
-证据分布触发，而不是作为所有 query 的默认策略。3-repeat 仍是 pilot，不用于宣称稳定
-百分比收益；正式结论仍需要 30+ repeats。
+`typed_dag` 相比 `sequential_dag` 平均质量仅高 0.017、平均关键路径短约 0.55 秒；
+与 `no_synthesis` 的平均质量基本持平（低 0.002），但延迟和成本明显更高。当前证据
+不支持把完整 DAG 作为所有 query 的默认策略，decomposition/synthesis 应由任务复杂度、
+跨来源整合需求和置信度触发。3-repeat 仍是 pilot，不用于宣称稳定百分比收益；正式
+结论仍需要 30+ repeats。
 
 ## 使用方式
 
